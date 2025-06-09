@@ -1,1 +1,3 @@
-
+python-telegram-bot==20.8
+pyotp
+beautifulsoup4
