@@ -1,10 +1,14 @@
-import imaplib, email, re, pyotp, asyncio
+import imaplib, email, re, pyotp, asyncio, os
 from bs4 import BeautifulSoup
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
-import os
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+)
+from PIL import Image
+from pyzbar.pyzbar import decode
 
 BOT_TOKEN ="7845423216:AAHE0QIJy9nJ4jhz-xcQURUCQEvnIAgjEdE"
+
 IMAP_SERVERS = {
     "yandex.com": "imap.yandex.com",
     "zoho.com": "imap.zoho.com",
@@ -115,7 +119,9 @@ def generate_otp_from_secret(secret):
         return f"❌ Secret Key មិនត្រឹមត្រូវទេ: {e}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [["📩 GET Mail OTP", "🔐 GET 2FA"]]
+    keyboard = [
+        ["📷 QR GET KEY", "🔐 2FA OTP", "📩 Mail OTP"]
+    ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     full_name = update.effective_user.full_name
     await update.message.reply_text(
@@ -125,13 +131,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    if text == "📩 GET Mail OTP":
-        await update.message.reply_text("📧 សូមផ្ញើ email | passwordapp ឲ្យបានត្រឹមត្រូវ")
+    # QR
+    if text == "📷 QR GET KEY":
+        await update.message.reply_text("📷 សូមផ្ញើរូប QR code (Authenticator QR)")
+        context.user_data['qr_wait'] = True
         return
-    elif text == "🔐 GET 2FA":
+    elif text == "🔐 2FA OTP":
         await update.message.reply_text("🧩 សូមផ្ញើ Secret Key ឲ្យបានត្រឹមត្រូវ")
         return
+    elif text == "📩 Mail OTP":
+        await update.message.reply_text("📧 សូមផ្ញើ email | passwordapp ឲ្យបានត្រឹមត្រូវ")
+        return
 
+    # QR state
+    if context.user_data.get('qr_wait'):
+        await update.message.reply_text("⚠️ សូមផ្ញើរូបភាព QR code។")
+        return
+
+    # email|password
     if "|" in text and "@" in text:
         try:
             email_input, password_input = text.split("|", 1)
@@ -151,9 +168,39 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ សូមបញ្ចូល `email|password` ឬ Secret Key ត្រឹមត្រូវ")
 
+async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # Handle QR code decode
+    if context.user_data.get('qr_wait'):
+        photo_file = await update.message.photo[-1].get_file()
+        file_path = f"/tmp/{update.message.from_user.id}_qr.png"
+        await photo_file.download_to_drive(file_path)
+        try:
+            img = Image.open(file_path)
+            qr_result = decode(img)
+            if qr_result and qr_result[0].data:
+                qr_data = qr_result[0].data.decode("utf-8")
+                # Extract secret from otpauth URL
+                import re
+                secret = None
+                if qr_data.startswith("otpauth://"):
+                    match = re.search(r"secret=([A-Z2-7]+)", qr_data, re.I)
+                    if match:
+                        secret = match.group(1)
+                if secret:
+                    await update.message.reply_text(f"✅ Secret Key: `{secret}`", parse_mode="Markdown")
+                else:
+                    await update.message.reply_text("❌ មិនរកឃើញ Secret Key នៅក្នុង QR នេះទេ។")
+            else:
+                await update.message.reply_text("❌ មិនអាចស្គែន QR បានទេ។")
+        except Exception as e:
+            await update.message.reply_text(f"❌ បញ្ហា៖ {e}")
+        context.user_data['qr_wait'] = False
+    else:
+        await update.message.reply_text("⚠️ សូមចុច '📷 QR GET KEY' ជាមុនសិន។")
+
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
+app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
 print("✅ Bot is running...")
 app.run_polling()
-
