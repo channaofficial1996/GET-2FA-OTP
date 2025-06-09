@@ -1,10 +1,9 @@
-
 import imaplib, email, re, pyotp
 from bs4 import BeautifulSoup
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-BOT_TOKEN = "7845423216:AAHE0QIJy9nJ4jhz-xcQURUCQEvnIAgjEdE"
+BOT_TOKEN = "YOUR_BOT_TOKEN"
 
 IMAP_SERVERS = {
     "yandex.com": "imap.yandex.com",
