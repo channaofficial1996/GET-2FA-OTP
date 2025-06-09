@@ -131,10 +131,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    # QR
+    # Always clear QR wait on any function switch!
+    context.user_data['qr_wait'] = False
+
+    # QR GET KEY
     if text == "📷 QR GET KEY":
-        await update.message.reply_text("📷 សូមផ្ញើរូប QR code (Authenticator QR)")
         context.user_data['qr_wait'] = True
+        await update.message.reply_text("📷 សូមផ្ញើរូប QR code (Authenticator QR)")
         return
     elif text == "🔐 2FA OTP":
         await update.message.reply_text("🧩 សូមផ្ញើ Secret Key ឲ្យបានត្រឹមត្រូវ")
@@ -143,11 +146,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📧 សូមផ្ញើ email | passwordapp ឲ្យបានត្រឹមត្រូវ")
         return
 
-    # QR state
+    # QR state (កុំអនុញ្ញាតឲ្យពិនិត្យលើមុខងារផ្សេងក្រៅពី QR)
     if context.user_data.get('qr_wait'):
         await update.message.reply_text("⚠️ សូមផ្ញើរូបភាព QR code។")
         return
 
+    # ... (កូដដើមផ្សេងៗសម្រាប់ Mail OTP និង 2FA OTP)
     # email|password
     if "|" in text and "@" in text:
         try:
