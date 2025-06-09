@@ -4,8 +4,7 @@ from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 import os
 
-BOT_TOKEN = os.getenv("7845423216:AAHE0QIJy9nJ4jhz-xcQURUCQEvnIAgjEdE") or "TOKEN-TELEGRAM-BOT-របស់បង"
-
+BOT_TOKEN ="7845423216:AAHE0QIJy9nJ4jhz-xcQURUCQEvnIAgjEdE"
 IMAP_SERVERS = {
     "yandex.com": "imap.yandex.com",
     "zoho.com": "imap.zoho.com",
