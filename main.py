@@ -19,6 +19,7 @@ def is_valid_email(email_str):
     return re.match(r"[^@]+@[^@]+\.[^@]+", email_str)
 
 def alias_in_any_header(msg, alias_email):
+    """Check alias exists in any relevant header"""
     alias_lower = alias_email.lower()
     for header in ["To", "Delivered-To", "X-Original-To", "Envelope-To"]:
         v = msg.get(header, "")
@@ -52,13 +53,16 @@ def extract_body(msg):
 def find_otp(text):
     if not text:
         return None
-    match = re.search(r"\b\d{6}\b", text)   # Most codes are 6 digits
+    # Try strict 6 digits
+    match = re.search(r"\b\d{6}\b", text)
     if match:
         return match.group(0)
-    match = re.search(r"\b\d{4,8}\b", text) # Any group of 4-8 digits
+    # Any group 4-8 digits
+    match = re.search(r"\b\d{4,8}\b", text)
     if match:
         return match.group(0)
-    match = re.search(r"(\d\s){3,7}\d", text) # Spaced
+    # Spaced digit
+    match = re.search(r"(\d\s){3,7}\d", text)
     if match:
         return match.group(0).replace(" ", "")
     return None
@@ -70,18 +74,13 @@ def fetch_otp_from_email(email_address, password):
             return "❌ Bot គាំទ្រតែ Yandex និង Zoho ប៉ុណ្ណោះ។"
         imap_server = IMAP_SERVERS[domain]
         base_email = email_address.split("+")[0] + "@" + domain
-        alias_email = email_address
+        alias_email = email_address.strip()
         mail = imaplib.IMAP4_SSL(imap_server)
         mail.login(base_email, password)
-
-        # Zoho: iterate both INBOX, All Mail, Spam (for latest OTP)
-        if domain.startswith("zoho"):
-            folders = ["INBOX", "All Mail", "Spam"]
-        else:
-            folders = ["INBOX", "FB-Security", "Spam", "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"]
-
-        seen_otps = set()
-        # -- Scan all recent mails in all folders (latest first) --
+        # Folders to check (Yandex=all, Zoho=all important)
+        folders = ["INBOX", "All Mail", "Spam", "FB-Security", "Bulk", "Promotions"]
+        found_otp = None
+        found_meta = {}
         for folder in folders:
             try:
                 select_status, _ = mail.select(folder)
@@ -91,11 +90,14 @@ def fetch_otp_from_email(email_address, password):
                 if result != "OK":
                     continue
                 email_ids = data[0].split()[-20:]  # only last 20
-                for eid in reversed(email_ids):    # newest first
+                for eid in reversed(email_ids):
                     result, data = mail.fetch(eid, "(RFC822)")
                     if result != "OK":
                         continue
                     msg = email.message_from_bytes(data[0][1])
+                    # Only match correct alias
+                    if not alias_in_any_header(msg, alias_email):
+                        continue
                     subject = msg.get("Subject", "")
                     from_email = msg.get("From", "")
                     folder_name = folder
@@ -104,24 +106,33 @@ def fetch_otp_from_email(email_address, password):
                     otp = find_otp(body)
                     if not otp:
                         otp = find_otp(subject)
-                    # Yandex: strict alias filter, Zoho: allow all
-                    if domain.endswith("yandex.com"):
-                        if not alias_in_any_header(msg, alias_email):
-                            continue
-                    if otp and otp not in seen_otps:
-                        seen_otps.add(otp)
-                        if otp.isdigit() and 4 <= len(otp) <= 8:
-                            return (
-                                f"✅ អត្ថបទផ្ទាល់ពីអ៊ីមែលថ្មីបំផុត\n"
-                                f"🟩 OTP: `{otp}`\n"
-                                f"📝 Subject: {subject}\n"
-                                f"📩 From: {from_email}\n"
-                                f"📁 Folder: {folder_name}\n"
-                                f"📥 To: {to_field}"
-                            )
+                    if otp and otp.isdigit() and 4 <= len(otp) <= 8:
+                        # Found newest OTP matching alias
+                        found_otp = otp
+                        found_meta = {
+                            "subject": subject,
+                            "from_email": from_email,
+                            "folder": folder_name,
+                            "to_field": to_field
+                        }
+                        break
+                if found_otp:
+                    break
             except Exception:
                 continue
-        return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
+        if found_otp:
+            return (
+                f"✅ អ្នកទទួលបាន OTP ចុងក្រោយបំផុត\n"
+                f"🔑 OTP: `{found_otp}`\n"
+                f"📩 From: {found_meta['from_email']}\n"
+                f"📝 Subject: {found_meta['subject']}\n"
+                f"📁 Folder: {found_meta['folder']}\n"
+                f"📥 To: {found_meta['to_field']}"
+            )
+        return (
+            "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។\n"
+            "🔎 Debug: ពិនិត្យ alias (To:) ត្រឹមត្រូវ ឬមើលថា email មកទេ។"
+        )
     except Exception as e:
         return f"❌ បញ្ហា: {e}"
 
