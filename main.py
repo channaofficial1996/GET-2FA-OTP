@@ -104,7 +104,6 @@ def fetch_otp_from_email(email_address, password):
                         seen_otps.add(otp)
                         return (
                             f"✅ ខាងក្រោមនេះជាកូតរបស់អ្នក\n"
-                            f"🔑 OTP: `{otp}`\n"
                             f"📩 From: {from_email}\n"
                             f"📝 Subject: {subject}\n"
                             f"📁 Folder: {folder_name}\n"
