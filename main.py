@@ -7,7 +7,7 @@ from telegram.ext import (
 from PIL import Image
 from pyzbar.pyzbar import decode
 
-BOT_TOKEN ="7845423216:AAHE0QIJy9nJ4jhz-xcQURUCQEvnIAgjEdE"
+BOT_TOKEN = "7845423216:AAHE0QIJy9nJ4jhz-xcQURUCQEvnIAgjEdE"
 
 IMAP_SERVERS = {
     "yandex.com": "imap.yandex.com",
@@ -90,27 +90,27 @@ def fetch_otp_from_email(email_address, password):
                     body = extract_body(msg)
 
                     otp = find_otp(body)
-if not otp:
-    otp = find_otp(subject)
+                    if not otp:
+                        otp = find_otp(subject)
 
-if otp and otp not in seen_otps:
-    seen_otps.add(otp)
-    return (
-        f"✅ ខាងក្រោមនេះជាកូតរបស់អ្នក\n"
-        f"🔑 OTP: `{otp}`\n"
-        f"📩 From: {from_email}\n"
-        f"📝 Subject: {subject}\n"
-        f"📁 Folder: {folder_name}\n"
-        f"📥 To: {to_field}"
-    )
-elif not otp:
-    # show full body to debug (optional)
-    return (
-        f"⚠️ មិនឃើញលេខ OTP!\n"
-        f"📩 From: {from_email}\n"
-        f"📝 Subject: {subject}\n"
-        f"Body: ```{body}```"
-    )
+                    if otp and otp not in seen_otps:
+                        seen_otps.add(otp)
+                        return (
+                            f"✅ ខាងក្រោមនេះជាកូតរបស់អ្នក\n"
+                            f"🔑 OTP: `{otp}`\n"
+                            f"📩 From: {from_email}\n"
+                            f"📝 Subject: {subject}\n"
+                            f"📁 Folder: {folder_name}\n"
+                            f"📥 To: {to_field}"
+                        )
+                    elif not otp:
+                        # show full body to debug (optional)
+                        return (
+                            f"⚠️ មិនឃើញលេខ OTP!\n"
+                            f"📩 From: {from_email}\n"
+                            f"📝 Subject: {subject}\n"
+                            f"Body: ```{body}```"
+                        )
             except Exception:
                 continue
         return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
@@ -140,10 +140,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
-    # Always clear QR wait on any function switch!
     context.user_data['qr_wait'] = False
 
-    # QR GET KEY
     if text == "📷 QR GET KEY":
         context.user_data['qr_wait'] = True
         await update.message.reply_text("📷 សូមផ្ញើរូប QR code (Authenticator QR)")
@@ -155,13 +153,10 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📧 សូមផ្ញើ email | passwordapp ឲ្យបានត្រឹមត្រូវ")
         return
 
-    # QR state (កុំអនុញ្ញាតឲ្យពិនិត្យលើមុខងារផ្សេងក្រៅពី QR)
     if context.user_data.get('qr_wait'):
         await update.message.reply_text("⚠️ សូមផ្ញើរូបភាព QR code។")
         return
 
-    # ... (កូដដើមផ្សេងៗសម្រាប់ Mail OTP និង 2FA OTP)
-    # email|password
     if "|" in text and "@" in text:
         try:
             email_input, password_input = text.split("|", 1)
@@ -182,7 +177,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ សូមបញ្ចូល `email|password` ឬ Secret Key ត្រឹមត្រូវ")
 
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Handle QR code decode
     if context.user_data.get('qr_wait'):
         photo_file = await update.message.photo[-1].get_file()
         file_path = f"/tmp/{update.message.from_user.id}_qr.png"
