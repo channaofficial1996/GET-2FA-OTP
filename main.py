@@ -14,6 +14,8 @@ IMAP_SERVERS = {
     "zoho.com": "imap.zoho.com",
     "zohomail.com": "imap.zoho.com"
 }
+def is_valid_email(email_str):
+    return re.match(r"[^@]+@[^@]+\.[^@]+", email_str)
 
 def alias_in_any_header(msg, alias_email):
     alias_lower = alias_email.lower()
