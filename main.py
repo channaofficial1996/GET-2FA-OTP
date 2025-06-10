@@ -19,14 +19,62 @@ def is_valid_email(email_str):
     return re.match(r"[^@]+@[^@]+\.[^@]+", email_str)
 
 def alias_in_any_header(msg, alias_email):
+    # Always match lower-case, strip < > from header value
     alias_lower = alias_email.lower()
-    # Loop all "To", "Delivered-To", "Envelope-To", "X-Original-To" headers for strict match
-    for header in ["To", "Delivered-To", "Envelope-To", "X-Original-To"]:
-        v = msg.get(header, "")
-        # Only strict match for zoho.com/zohomail.com
-        if alias_lower in v.lower():
+    headers = ["To", "Delivered-To", "X-Original-To", "Envelope-To"]
+    for h in headers:
+        v = msg.get(h, "")
+        v = v.replace("<", "").replace(">", "").lower()
+        # Direct match for alias (seynara+xxx@zohomail.com)
+        if alias_lower in v:
             return True
+        # Extra: fuzzy match for plus-addressing (if Zoho/Yandex rewrites + -> . or drops plus part)
+        if '+' in alias_lower:
+            local_part, domain = alias_lower.split('@', 1)
+            base = local_part.split('+')[0]
+            if base + '@' + domain in v:
+                return True
     return False
+
+def extract_body(msg):
+    body = ""
+    html_content = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            content_type = part.get_content_type()
+            payload = part.get_payload(decode=True)
+            if payload:
+                text = payload.decode(errors="ignore")
+                if content_type == "text/plain":
+                    body += text + "\n"
+                elif content_type == "text/html":
+                    html_content += text + "\n"
+    else:
+        payload = msg.get_payload(decode=True)
+        if payload:
+            body = payload.decode(errors="ignore")
+    if html_content:
+        soup = BeautifulSoup(html_content, "html.parser")
+        html_text = soup.get_text(separator="\n")
+        body += "\n" + html_text
+    return body
+
+def find_otp(text):
+    if not text:
+        return None
+    # Try most common OTP format: 6 digits on their own line
+    match = re.search(r"\b\d{6}\b", text)
+    if match:
+        return match.group(0)
+    # Any group of 4-8 digits
+    match = re.search(r"\b\d{4,8}\b", text)
+    if match:
+        return match.group(0)
+    # OTP with spaces (e.g. 1 2 3 4 5 6)
+    match = re.search(r"(\d\s){3,7}\d", text)
+    if match:
+        return match.group(0).replace(" ", "")
+    return None
 
 def fetch_otp_from_email(email_address, password):
     try:
@@ -58,10 +106,8 @@ def fetch_otp_from_email(email_address, password):
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
-                    
-                    # 👉 Zoho: alias must match for +xxxx
-                    # 👉 Yandex: base or alias, keep existing logic!
-                    if domain in ["zoho.com", "zohomail.com"]:
+                    # ✅ For Yandex/Zoho: require alias in header (To/Delivered-To/Original-To) for matching alias/plus
+                    if domain.endswith("yandex.com") or "zoho" in domain:
                         if not alias_in_any_header(msg, alias_email):
                             continue
                     body = extract_body(msg)
