@@ -24,16 +24,20 @@ def alias_in_any_header(msg, alias_email):
 
 def extract_body(msg):
     body = ""
+    # ដកស្រង់ text/plain និង text/html ទាំងអស់ (បញ្ចូល join)
     if msg.is_multipart():
+        all_parts = []
         for part in msg.walk():
             content_type = part.get_content_type()
-            if content_type == "text/plain":
-                body = part.get_payload(decode=True).decode(errors="ignore")
-                break
-            elif content_type == "text/html" and not body:
-                html = part.get_payload(decode=True).decode(errors="ignore")
-                soup = BeautifulSoup(html, "html.parser")
-                body = soup.get_text(separator=" ")
+            payload = part.get_payload(decode=True)
+            if payload:
+                text = payload.decode(errors="ignore")
+                if content_type == "text/plain":
+                    all_parts.append(text)
+                elif content_type == "text/html":
+                    soup = BeautifulSoup(text, "html.parser")
+                    all_parts.append(soup.get_text(separator=" "))
+        body = "\n".join(all_parts)
     else:
         payload = msg.get_payload(decode=True)
         if payload:
@@ -41,11 +45,13 @@ def extract_body(msg):
     return body
 
 def find_otp(text):
-    match = re.search(r"\b\d{4,8}\b", text)
-    return match.group(0) if match else None
-
-def is_valid_email(email_str):
-    return re.match(r"[^@]+@[^@]+\.[^@]+", email_str)
+    # បន្ថែមករណីលេខ OTP មាន space មួយចំនួនមិនស្វ័យប្រវត្តិ (ex: 9 4 0 2 5)
+    # សំរាប់ករណីសព្វថ្ងៃ យក 4-8 digit group
+    if not text:
+        return None
+    # ដកចេញលេខ 4-8 ខ្ទង់ជាផ្នែក (ឬអាចកែទៅ 3-10)
+    matches = re.findall(r"\b\d{4,8}\b", text)
+    return matches[0] if matches else None
 
 def fetch_otp_from_email(email_address, password):
     try:
@@ -80,19 +86,18 @@ def fetch_otp_from_email(email_address, password):
                         continue
 
                     msg = email.message_from_bytes(data[0][1])
-
-                    # ចាប់ OTP ពី body និង subject ទាំងអស់ (no alias header check)
                     subject = msg.get("Subject", "")
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
                     body = extract_body(msg)
 
-                    # រក OTP គ្រប់គ្រងសារ
+                    # 1. ពិនិត្យ OTP ក្នុង body
                     otp = find_otp(body)
+                    # 2. បើមិនមានក្នុង body, ស្វែងរកក្នុង subject
                     if not otp:
                         otp = find_otp(subject)
-
+                    # 3. បើមិនមាននៅឡើយ ក៏បង្ហាញ body ដើម្បី debug
                     if otp and otp not in seen_otps:
                         seen_otps.add(otp)
                         return (
