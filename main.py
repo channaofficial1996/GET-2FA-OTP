@@ -26,30 +26,30 @@ def alias_in_any_header(msg, alias_email):
 
 def extract_body(msg):
     body = ""
+    html_content = ""
     if msg.is_multipart():
-        all_parts = []
         for part in msg.walk():
             content_type = part.get_content_type()
             payload = part.get_payload(decode=True)
             if payload:
                 text = payload.decode(errors="ignore")
-                # Always parse HTML as plain text
                 if content_type == "text/plain":
-                    all_parts.append(text)
+                    body += text + "\n"
                 elif content_type == "text/html":
-                    soup = BeautifulSoup(text, "html.parser")
-                    all_parts.append(soup.get_text(separator=" "))
-        body = "\n".join(all_parts)
+                    html_content += text + "\n"
     else:
         payload = msg.get_payload(decode=True)
         if payload:
-            try:
-                soup = BeautifulSoup(payload.decode(errors="ignore"), "html.parser")
-                body = soup.get_text(separator=" ")
-            except Exception:
-                body = payload.decode(errors="ignore")
-    return body
+            body = payload.decode(errors="ignore")
 
+    # Parse OTP from HTML block as well!
+    if html_content:
+        soup = BeautifulSoup(html_content, "html.parser")
+        # Get all visible text including inside button/div/span etc.
+        html_text = soup.get_text(separator="\n")
+        body += "\n" + html_text
+
+    return body
 def find_otp(text):
     if not text:
         return None
