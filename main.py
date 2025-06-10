@@ -26,7 +26,6 @@ def alias_in_any_header(msg, alias_email):
 
 def extract_body(msg):
     body = ""
-    # ដកស្រង់ text/plain និង text/html ទាំងអស់ (បញ្ចូល join)
     if msg.is_multipart():
         all_parts = []
         for part in msg.walk():
@@ -34,6 +33,7 @@ def extract_body(msg):
             payload = part.get_payload(decode=True)
             if payload:
                 text = payload.decode(errors="ignore")
+                # Always parse HTML as plain text
                 if content_type == "text/plain":
                     all_parts.append(text)
                 elif content_type == "text/html":
@@ -43,7 +43,11 @@ def extract_body(msg):
     else:
         payload = msg.get_payload(decode=True)
         if payload:
-            body = payload.decode(errors="ignore")
+            try:
+                soup = BeautifulSoup(payload.decode(errors="ignore"), "html.parser")
+                body = soup.get_text(separator=" ")
+            except Exception:
+                body = payload.decode(errors="ignore")
     return body
 
 def find_otp(text):
@@ -61,6 +65,7 @@ def find_otp(text):
         if 4 <= len(otp_clean) <= 8:
             return otp_clean
     return None
+
 
 def fetch_otp_from_email(email_address, password):
     try:
