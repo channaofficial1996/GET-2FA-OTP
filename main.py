@@ -80,15 +80,15 @@ def fetch_otp_from_email(email_address, password):
                         continue
 
                     msg = email.message_from_bytes(data[0][1])
-                    if not alias_in_any_header(msg, alias_email):
-                        continue
 
+                    # ចាប់ OTP ពី body និង subject ទាំងអស់ (no alias header check)
                     subject = msg.get("Subject", "")
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
                     body = extract_body(msg)
 
+                    # រក OTP គ្រប់គ្រងសារ
                     otp = find_otp(body)
                     if not otp:
                         otp = find_otp(subject)
@@ -103,19 +103,17 @@ def fetch_otp_from_email(email_address, password):
                             f"📁 Folder: {folder_name}\n"
                             f"📥 To: {to_field}"
                         )
-                    elif not otp:
-                        # show full body to debug (optional)
-                        return (
-                            f"⚠️ មិនឃើញលេខ OTP!\n"
-                            f"📩 From: {from_email}\n"
-                            f"📝 Subject: {subject}\n"
-                            f"Body: ```{body}```"
-                        )
             except Exception:
                 continue
         return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
     except Exception as e:
         return f"❌ បញ្ហា: {e}"
+
+# -- regex ចាប់លេខកូដទាំងអស់ --
+def find_otp(text):
+    # ចាប់លេខកូដ 4-8 ខ្ទង់ ទាំង body/subject
+    matches = re.findall(r"\b\d{4,8}\b", text)
+    return matches[0] if matches else None
 
 def generate_otp_from_secret(secret):
     try:
