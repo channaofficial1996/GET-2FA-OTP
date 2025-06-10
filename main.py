@@ -53,19 +53,16 @@ def extract_body(msg):
 def find_otp(text):
     if not text:
         return None
-    # 1. Normal contiguous digits (4-8)
+    match = re.search(r"^(\d{4,8})\b", text)
+    if match:
+        return match.group(1)
     match = re.search(r"\b\d{4,8}\b", text)
     if match:
         return match.group(0)
-    # 2. Split digits by space/dash (Ex: 9 4 0 2 5 or 9-4-0-2-5)
-    match = re.search(r"(?:\D|^)((?:\d[ -]?){4,8})(?:\D|$)", text)
+    match = re.search(r"(\d\s){3,7}\d", text)
     if match:
-        otp = match.group(1)
-        otp_clean = ''.join(re.findall(r'\d', otp))
-        if 4 <= len(otp_clean) <= 8:
-            return otp_clean
+        return match.group(0).replace(" ", "")
     return None
-
 
 def fetch_otp_from_email(email_address, password):
     try:
