@@ -90,17 +90,27 @@ def fetch_otp_from_email(email_address, password):
                     body = extract_body(msg)
 
                     otp = find_otp(body)
-                    if not otp:
-                        otp = find_otp(subject)
-                    if otp and otp not in seen_otps:
-                        seen_otps.add(otp)
-                        return (
-                            f"✅ ខាងក្រោមនេះជាកូតរបស់អ្នក\n"
-                            f"📩 From: {from_email}\n"
-                            f"📝 Subject: {subject}\n"
-                            f"📁 Folder: {folder_name}\n"
-                            f"📥 To: {to_field}"
-                        )
+if not otp:
+    otp = find_otp(subject)
+
+if otp and otp not in seen_otps:
+    seen_otps.add(otp)
+    return (
+        f"✅ ខាងក្រោមនេះជាកូតរបស់អ្នក\n"
+        f"🔑 OTP: `{otp}`\n"
+        f"📩 From: {from_email}\n"
+        f"📝 Subject: {subject}\n"
+        f"📁 Folder: {folder_name}\n"
+        f"📥 To: {to_field}"
+    )
+elif not otp:
+    # show full body to debug (optional)
+    return (
+        f"⚠️ មិនឃើញលេខ OTP!\n"
+        f"📩 From: {from_email}\n"
+        f"📝 Subject: {subject}\n"
+        f"Body: ```{body}```"
+    )
             except Exception:
                 continue
         return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
