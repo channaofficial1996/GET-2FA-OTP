@@ -47,13 +47,20 @@ def extract_body(msg):
     return body
 
 def find_otp(text):
-    # បន្ថែមករណីលេខ OTP មាន space មួយចំនួនមិនស្វ័យប្រវត្តិ (ex: 9 4 0 2 5)
-    # សំរាប់ករណីសព្វថ្ងៃ យក 4-8 digit group
     if not text:
         return None
-    # ដកចេញលេខ 4-8 ខ្ទង់ជាផ្នែក (ឬអាចកែទៅ 3-10)
-    matches = re.findall(r"\b\d{4,8}\b", text)
-    return matches[0] if matches else None
+    # 1. Normal contiguous digits (4-8)
+    match = re.search(r"\b\d{4,8}\b", text)
+    if match:
+        return match.group(0)
+    # 2. Split digits by space/dash (Ex: 9 4 0 2 5 or 9-4-0-2-5)
+    match = re.search(r"(?:\D|^)((?:\d[ -]?){4,8})(?:\D|$)", text)
+    if match:
+        otp = match.group(1)
+        otp_clean = ''.join(re.findall(r'\d', otp))
+        if 4 <= len(otp_clean) <= 8:
+            return otp_clean
+    return None
 
 def fetch_otp_from_email(email_address, password):
     try:
