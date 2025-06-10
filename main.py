@@ -19,11 +19,12 @@ def is_valid_email(email_str):
     return re.match(r"[^@]+@[^@]+\.[^@]+", email_str)
 
 def alias_in_any_header(msg, alias_email):
-    # Must match full alias in ANY of the following headers
     alias_lower = alias_email.lower()
-    for header in ["To", "Delivered-To", "X-Original-To", "Envelope-To"]:
+    # Loop all "To", "Delivered-To", "Envelope-To", "X-Original-To" headers for strict match
+    for header in ["To", "Delivered-To", "Envelope-To", "X-Original-To"]:
         v = msg.get(header, "")
-        if v and alias_lower in v.lower():
+        # Only strict match for zoho.com/zohomail.com
+        if alias_lower in v.lower():
             return True
     return False
 
@@ -57,9 +58,12 @@ def fetch_otp_from_email(email_address, password):
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
-                    # *** FIX: filter by alias ***
-                    if not alias_in_any_header(msg, alias_email):
-                        continue
+                    
+                    # 👉 Zoho: alias must match for +xxxx
+                    # 👉 Yandex: base or alias, keep existing logic!
+                    if domain in ["zoho.com", "zohomail.com"]:
+                        if not alias_in_any_header(msg, alias_email):
+                            continue
                     body = extract_body(msg)
                     otp = find_otp(body)
                     if not otp:
@@ -67,14 +71,14 @@ def fetch_otp_from_email(email_address, password):
                     if otp and otp not in seen_otps:
                         seen_otps.add(otp)
                         return (
-                            f"✅ អ្នកបានទទួលកូដ OTP\n"
+                            f"✅ ខាងក្រោមនេះជាកូដរបស់អ្នក\n"
                             f"🔑 OTP: `{otp}`\n"
                             f"📩 From: {from_email}\n"
                             f"📝 Subject: {subject}\n"
                             f"📁 Folder: {folder_name}\n"
                             f"📥 To: {to_field}"
                         )
-            except Exception as e:
+            except Exception:
                 continue
         return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
     except Exception as e:
