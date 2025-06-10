@@ -19,50 +19,11 @@ def is_valid_email(email_str):
 
 def alias_in_any_header(msg, alias_email):
     alias_lower = alias_email.lower()
-    for header, value in msg.items():
-        if alias_lower in value.lower():
-            return True
+    to_field = msg.get("To", "").lower()
+    delivered_to = msg.get("Delivered-To", "").lower()
+    if alias_lower in to_field or alias_lower in delivered_to:
+        return True
     return False
-
-def extract_body(msg):
-    body = ""
-    html_content = ""
-    if msg.is_multipart():
-        for part in msg.walk():
-            content_type = part.get_content_type()
-            payload = part.get_payload(decode=True)
-            if payload:
-                text = payload.decode(errors="ignore")
-                if content_type == "text/plain":
-                    body += text + "\n"
-                elif content_type == "text/html":
-                    html_content += text + "\n"
-    else:
-        payload = msg.get_payload(decode=True)
-        if payload:
-            body = payload.decode(errors="ignore")
-
-    # Parse OTP from HTML block as well!
-    if html_content:
-        soup = BeautifulSoup(html_content, "html.parser")
-        # Get all visible text including inside button/div/span etc.
-        html_text = soup.get_text(separator="\n")
-        body += "\n" + html_text
-
-    return body
-def find_otp(text):
-    if not text:
-        return None
-    match = re.search(r"^(\d{4,8})\b", text)
-    if match:
-        return match.group(1)
-    match = re.search(r"\b\d{4,8}\b", text)
-    if match:
-        return match.group(0)
-    match = re.search(r"(\d\s){3,7}\d", text)
-    if match:
-        return match.group(0).replace(" ", "")
-    return None
 
 def fetch_otp_from_email(email_address, password):
     try:
@@ -101,18 +62,20 @@ def fetch_otp_from_email(email_address, password):
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
-                    body = extract_body(msg)
 
-                    # 1. ពិនិត្យ OTP ក្នុង body
+                    # 🛑 Only continue if To: or Delivered-To: == alias_email
+                    if not alias_in_any_header(msg, alias_email):
+                        continue
+
+                    body = extract_body(msg)
                     otp = find_otp(body)
-                    # 2. បើមិនមានក្នុង body, ស្វែងរកក្នុង subject
                     if not otp:
                         otp = find_otp(subject)
-                    # 3. បើមិនមាននៅឡើយ ក៏បង្ហាញ body ដើម្បី debug
                     if otp and otp not in seen_otps:
                         seen_otps.add(otp)
                         return (
                             f"✅ ខាងក្រោមនេះជាកូតរបស់អ្នក\n"
+                            f"🔑 OTP: `{otp}`\n"
                             f"📩 From: {from_email}\n"
                             f"📝 Subject: {subject}\n"
                             f"📁 Folder: {folder_name}\n"
@@ -123,6 +86,7 @@ def fetch_otp_from_email(email_address, password):
         return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
     except Exception as e:
         return f"❌ បញ្ហា: {e}"
+
 
 # -- regex ចាប់លេខកូដទាំងអស់ --
 def find_otp(text):
