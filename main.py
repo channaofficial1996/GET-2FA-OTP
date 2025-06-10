@@ -30,43 +30,31 @@ def fetch_otp_from_email(email_address, password):
         domain = email_address.split("@")[1]
         if domain not in IMAP_SERVERS:
             return "❌ Bot គាំទ្រតែ Yandex និង Zoho ប៉ុណ្ណោះ។"
-
         imap_server = IMAP_SERVERS[domain]
         base_email = email_address.split("+")[0] + "@" + domain
-        alias_email = email_address
-
         mail = imaplib.IMAP4_SSL(imap_server)
         mail.login(base_email, password)
-
-        folders = ["INBOX", "Spam", "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"]
+        # Folders to check
+        folders = ["INBOX", "FB-Security", "Spam", "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"]
         seen_otps = set()
-
         for folder in folders:
             try:
                 select_status, _ = mail.select(folder)
                 if select_status != "OK":
                     continue
-
                 result, data = mail.search(None, "ALL")
                 if result != "OK":
                     continue
-
                 email_ids = data[0].split()[-20:]
                 for eid in reversed(email_ids):
                     result, data = mail.fetch(eid, "(RFC822)")
                     if result != "OK":
                         continue
-
                     msg = email.message_from_bytes(data[0][1])
                     subject = msg.get("Subject", "")
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
-
-                    # 🛑 Only continue if To: or Delivered-To: == alias_email
-                    if not alias_in_any_header(msg, alias_email):
-                        continue
-
                     body = extract_body(msg)
                     otp = find_otp(body)
                     if not otp:
@@ -74,25 +62,36 @@ def fetch_otp_from_email(email_address, password):
                     if otp and otp not in seen_otps:
                         seen_otps.add(otp)
                         return (
-                            f"✅ ខាងក្រោមនេះជាកូតរបស់អ្នក\n"
+                            f"✅ ខាងក្រោមនេះជាកូដរបស់អ្នក\n"
                             f"🔑 OTP: `{otp}`\n"
                             f"📩 From: {from_email}\n"
                             f"📝 Subject: {subject}\n"
                             f"📁 Folder: {folder_name}\n"
                             f"📥 To: {to_field}"
                         )
-            except Exception:
+            except Exception as e:
                 continue
         return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
     except Exception as e:
         return f"❌ បញ្ហា: {e}"
 
-
 # -- regex ចាប់លេខកូដទាំងអស់ --
 def find_otp(text):
-    # ចាប់លេខកូដ 4-8 ខ្ទង់ ទាំង body/subject
-    matches = re.findall(r"\b\d{4,8}\b", text)
-    return matches[0] if matches else None
+    # Catch OTP in visible block (4-8 digits, including if on its own line in HTML)
+    if not text:
+        return None
+    match = re.search(r"\b\d{6}\b", text)  # Most FB codes are 6 digits
+    if match:
+        return match.group(0)
+    match = re.search(r"\b\d{4,8}\b", text)
+    if match:
+        return match.group(0)
+    # Spaced numbers (rare)
+    match = re.search(r"(\d\s){3,7}\d", text)
+    if match:
+        return match.group(0).replace(" ", "")
+    return None
+
 
 def generate_otp_from_secret(secret):
     try:
