@@ -1,4 +1,5 @@
-import imaplib, email, re, pyotp, asyncio, os
+
+import imaplib, email, re, pyotp, asyncio
 from bs4 import BeautifulSoup
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -19,8 +20,8 @@ def is_valid_email(email_str):
     return re.match(r"[^@]+@[^@]+\.[^@]+", email_str)
 
 def alias_in_any_header(msg, alias_email):
-    """Check alias exists in any relevant header"""
     alias_lower = alias_email.lower()
+    # All headers to check for alias
     for header in ["To", "Delivered-To", "X-Original-To", "Envelope-To"]:
         v = msg.get(header, "")
         if v and alias_lower in v.lower():
@@ -53,15 +54,15 @@ def extract_body(msg):
 def find_otp(text):
     if not text:
         return None
-    # Try strict 6 digits
+    # Try most common OTP format: 6 digits on their own line
     match = re.search(r"\b\d{6}\b", text)
     if match:
         return match.group(0)
-    # Any group 4-8 digits
+    # Any group of 4-8 digits
     match = re.search(r"\b\d{4,8}\b", text)
     if match:
         return match.group(0)
-    # Spaced digit
+    # OTP with spaces (e.g. 1 2 3 4 5 6)
     match = re.search(r"(\d\s){3,7}\d", text)
     if match:
         return match.group(0).replace(" ", "")
@@ -74,13 +75,14 @@ def fetch_otp_from_email(email_address, password):
             return "❌ Bot គាំទ្រតែ Yandex និង Zoho ប៉ុណ្ណោះ។"
         imap_server = IMAP_SERVERS[domain]
         base_email = email_address.split("+")[0] + "@" + domain
-        alias_email = email_address.strip()
+        alias_email = email_address
+
         mail = imaplib.IMAP4_SSL(imap_server)
         mail.login(base_email, password)
-        # Folders to check (Yandex=all, Zoho=all important)
-        folders = ["INBOX", "All Mail", "Spam", "FB-Security", "Bulk", "Promotions"]
-        found_otp = None
-        found_meta = {}
+        folders = ["INBOX", "Trash", "Spam", "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"]
+        seen_otps = set()
+        otp_msg_debug = None
+
         for folder in folders:
             try:
                 select_status, _ = mail.select(folder)
@@ -89,50 +91,56 @@ def fetch_otp_from_email(email_address, password):
                 result, data = mail.search(None, "ALL")
                 if result != "OK":
                     continue
-                email_ids = data[0].split()[-20:]  # only last 20
+                email_ids = data[0].split()[-20:]
                 for eid in reversed(email_ids):
                     result, data = mail.fetch(eid, "(RFC822)")
                     if result != "OK":
                         continue
                     msg = email.message_from_bytes(data[0][1])
-                    # Only match correct alias
-                    if not alias_in_any_header(msg, alias_email):
-                        continue
                     subject = msg.get("Subject", "")
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
+                    # --- For Yandex: require strict alias
+                    if domain.endswith("yandex.com"):
+                        if not alias_in_any_header(msg, alias_email):
+                            continue
+                    # --- For Zoho: try alias, fallback to base if not found ---
                     body = extract_body(msg)
-                    otp = find_otp(body)
-                    if not otp:
-                        otp = find_otp(subject)
-                    if otp and otp.isdigit() and 4 <= len(otp) <= 8:
-                        # Found newest OTP matching alias
-                        found_otp = otp
-                        found_meta = {
-                            "subject": subject,
-                            "from_email": from_email,
-                            "folder": folder_name,
-                            "to_field": to_field
-                        }
-                        break
-                if found_otp:
-                    break
+                    otp = find_otp(body) or find_otp(subject)
+                    if otp and otp not in seen_otps:
+                        # First, try alias
+                        if alias_in_any_header(msg, alias_email):
+                            seen_otps.add(otp)
+                            return (
+                                f"✅ អត្ថបទផ្ញើរការត្រលប់\n"
+                                f"🔑 OTP: `{otp}`\n"
+                                f"📩 From: {from_email}\n"
+                                f"📝 Subject: {subject}\n"
+                                f"📁 Folder: {folder_name}\n"
+                                f"📥 To: {to_field}"
+                            )
+                        # For Zoho, fallback to base account if not found alias in To
+                        elif domain.startswith("zoho"):
+                            # Check if To == base_email
+                            to_header = (to_field or "").lower()
+                            if base_email.lower() in to_header:
+                                otp_msg_debug = (
+                                    f"❗️[Fallback Zoho] OTP រក alias មិនឃើញ, យកតាម base: `{base_email}`\n"
+                                    f"🔑 OTP: `{otp}`\n"
+                                    f"📩 From: {from_email}\n"
+                                    f"📝 Subject: {subject}\n"
+                                    f"📁 Folder: {folder_name}\n"
+                                    f"📥 To: {to_field}"
+                                )
+                                # Don't return yet; maybe next mail is a better match!
+                                seen_otps.add(otp)
             except Exception:
                 continue
-        if found_otp:
-            return (
-                f"✅ អ្នកទទួលបាន OTP ចុងក្រោយបំផុត\n"
-                f"🔑 OTP: `{found_otp}`\n"
-                f"📩 From: {found_meta['from_email']}\n"
-                f"📝 Subject: {found_meta['subject']}\n"
-                f"📁 Folder: {found_meta['folder']}\n"
-                f"📥 To: {found_meta['to_field']}"
-            )
-        return (
-            "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។\n"
-            "🔎 Debug: ពិនិត្យ alias (To:) ត្រឹមត្រូវ ឬមើលថា email មកទេ។"
-        )
+        # If found fallback, show fallback with debug (Zoho only)
+        if otp_msg_debug:
+            return otp_msg_debug + "\n🔎 Debug: កម្រិត alias (To) មិនជាប់, ប៉ុន្តែ base email ត្រឹមត្រូវ!"
+        return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។\n🔎 Debug: ការស្វែងរក alias (To) មិនជាប់ base email មានតែក្នុង email មួយចំនួន។"
     except Exception as e:
         return f"❌ បញ្ហា: {e}"
 
