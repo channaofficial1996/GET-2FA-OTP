@@ -19,54 +19,13 @@ def is_valid_email(email_str):
     return re.match(r"[^@]+@[^@]+\.[^@]+", email_str)
 
 def alias_in_any_header(msg, alias_email):
-    # alias_email: full (including +xxx@yandex.com)
+    # Must match full alias in ANY of the following headers
     alias_lower = alias_email.lower()
-    # All possible relevant headers
     for header in ["To", "Delivered-To", "X-Original-To", "Envelope-To"]:
         v = msg.get(header, "")
         if v and alias_lower in v.lower():
             return True
     return False
-
-def extract_body(msg):
-    body = ""
-    html_content = ""
-    if msg.is_multipart():
-        for part in msg.walk():
-            content_type = part.get_content_type()
-            payload = part.get_payload(decode=True)
-            if payload:
-                text = payload.decode(errors="ignore")
-                if content_type == "text/plain":
-                    body += text + "\n"
-                elif content_type == "text/html":
-                    html_content += text + "\n"
-    else:
-        payload = msg.get_payload(decode=True)
-        if payload:
-            body = payload.decode(errors="ignore")
-    if html_content:
-        soup = BeautifulSoup(html_content, "html.parser")
-        html_text = soup.get_text(separator="\n")
-        body += "\n" + html_text
-    return body
-
-def find_otp(text):
-    if not text:
-        return None
-    # Try most common OTP format: 6 digits on their own line
-    match = re.search(r"\b\d{6}\b", text)
-    if match:
-        return match.group(0)
-    # Any group of 4-8 digits
-    match = re.search(r"\b\d{4,8}\b", text)
-    if match:
-        return match.group(0)
-    # OTP with spaces (e.g. 1 2 3 4 5 6)
-    match = re.search(r"(\d\s){3,7}\d", text)
-    if match:
-        return match.group(0).replace(" ", "")
-    return None
 
 def fetch_otp_from_email(email_address, password):
     try:
@@ -98,11 +57,9 @@ def fetch_otp_from_email(email_address, password):
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
-                    # ✅ Fallback for Zoho/others: always check, do NOT strict alias for Zoho
-                    if domain.endswith("yandex.com"):
-                        if not alias_in_any_header(msg, alias_email):
-                            continue  # Still strict for Yandex
-                    # For Zoho: allow all
+                    # *** FIX: filter by alias ***
+                    if not alias_in_any_header(msg, alias_email):
+                        continue
                     body = extract_body(msg)
                     otp = find_otp(body)
                     if not otp:
@@ -110,14 +67,14 @@ def fetch_otp_from_email(email_address, password):
                     if otp and otp not in seen_otps:
                         seen_otps.add(otp)
                         return (
-                            f"✅ ខាងក្រោមនេះជាកូដរបស់អ្នក\n"
+                            f"✅ អ្នកបានទទួលកូដ OTP\n"
                             f"🔑 OTP: `{otp}`\n"
                             f"📩 From: {from_email}\n"
                             f"📝 Subject: {subject}\n"
                             f"📁 Folder: {folder_name}\n"
                             f"📥 To: {to_field}"
                         )
-            except Exception:
+            except Exception as e:
                 continue
         return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
     except Exception as e:
