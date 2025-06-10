@@ -14,16 +14,59 @@ IMAP_SERVERS = {
     "zoho.com": "imap.zoho.com",
     "zohomail.com": "imap.zoho.com"
 }
+
 def is_valid_email(email_str):
     return re.match(r"[^@]+@[^@]+\.[^@]+", email_str)
 
 def alias_in_any_header(msg, alias_email):
+    # alias_email: full (including +xxx@yandex.com)
     alias_lower = alias_email.lower()
-    to_field = msg.get("To", "").lower()
-    delivered_to = msg.get("Delivered-To", "").lower()
-    if alias_lower in to_field or alias_lower in delivered_to:
-        return True
+    # All possible relevant headers
+    for header in ["To", "Delivered-To", "X-Original-To", "Envelope-To"]:
+        v = msg.get(header, "")
+        if v and alias_lower in v.lower():
+            return True
     return False
+
+def extract_body(msg):
+    body = ""
+    html_content = ""
+    if msg.is_multipart():
+        for part in msg.walk():
+            content_type = part.get_content_type()
+            payload = part.get_payload(decode=True)
+            if payload:
+                text = payload.decode(errors="ignore")
+                if content_type == "text/plain":
+                    body += text + "\n"
+                elif content_type == "text/html":
+                    html_content += text + "\n"
+    else:
+        payload = msg.get_payload(decode=True)
+        if payload:
+            body = payload.decode(errors="ignore")
+    if html_content:
+        soup = BeautifulSoup(html_content, "html.parser")
+        html_text = soup.get_text(separator="\n")
+        body += "\n" + html_text
+    return body
+
+def find_otp(text):
+    if not text:
+        return None
+    # Try most common OTP format: 6 digits on their own line
+    match = re.search(r"\b\d{6}\b", text)
+    if match:
+        return match.group(0)
+    # Any group of 4-8 digits
+    match = re.search(r"\b\d{4,8}\b", text)
+    if match:
+        return match.group(0)
+    # OTP with spaces (e.g. 1 2 3 4 5 6)
+    match = re.search(r"(\d\s){3,7}\d", text)
+    if match:
+        return match.group(0).replace(" ", "")
+    return None
 
 def fetch_otp_from_email(email_address, password):
     try:
@@ -32,9 +75,9 @@ def fetch_otp_from_email(email_address, password):
             return "❌ Bot គាំទ្រតែ Yandex និង Zoho ប៉ុណ្ណោះ។"
         imap_server = IMAP_SERVERS[domain]
         base_email = email_address.split("+")[0] + "@" + domain
+        alias_email = email_address
         mail = imaplib.IMAP4_SSL(imap_server)
         mail.login(base_email, password)
-        # Folders to check
         folders = ["INBOX", "FB-Security", "Spam", "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"]
         seen_otps = set()
         for folder in folders:
@@ -55,6 +98,9 @@ def fetch_otp_from_email(email_address, password):
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
+                    # ✅ Only match if alias correct!
+                    if not alias_in_any_header(msg, alias_email):
+                        continue
                     body = extract_body(msg)
                     otp = find_otp(body)
                     if not otp:
@@ -69,29 +115,11 @@ def fetch_otp_from_email(email_address, password):
                             f"📁 Folder: {folder_name}\n"
                             f"📥 To: {to_field}"
                         )
-            except Exception as e:
+            except Exception:
                 continue
         return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
     except Exception as e:
         return f"❌ បញ្ហា: {e}"
-
-# -- regex ចាប់លេខកូដទាំងអស់ --
-def find_otp(text):
-    # Catch OTP in visible block (4-8 digits, including if on its own line in HTML)
-    if not text:
-        return None
-    match = re.search(r"\b\d{6}\b", text)  # Most FB codes are 6 digits
-    if match:
-        return match.group(0)
-    match = re.search(r"\b\d{4,8}\b", text)
-    if match:
-        return match.group(0)
-    # Spaced numbers (rare)
-    match = re.search(r"(\d\s){3,7}\d", text)
-    if match:
-        return match.group(0).replace(" ", "")
-    return None
-
 
 def generate_otp_from_secret(secret):
     try:
@@ -162,7 +190,6 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             qr_result = decode(img)
             if qr_result and qr_result[0].data:
                 qr_data = qr_result[0].data.decode("utf-8")
-                # Extract secret from otpauth URL
                 import re
                 secret = None
                 if qr_data.startswith("otpauth://"):
