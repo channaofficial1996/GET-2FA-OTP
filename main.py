@@ -178,7 +178,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(result, parse_mode="Markdown")
         except Exception as e:
             await update.message.reply_text(f"❌ បញ្ហា: {e}")
-    elif len(text.strip()) >= 16 and text.strip().isalnum():
+    # FIX HERE!
+    elif len(text.strip().replace(" ", "")) >= 16:
         result = generate_otp_from_secret(text.strip())
         await update.message.reply_text(result, parse_mode="Markdown")
     else:
