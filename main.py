@@ -12,7 +12,8 @@ BOT_TOKEN = "7845423216:AAHE0QIJy9nJ4jhz-xcQURUCQEvnIAgjEdE"
 IMAP_SERVERS = {
     "yandex.com": "imap.yandex.com",
     "zoho.com": "imap.zoho.com",
-    "zohomail.com": "imap.zoho.com"
+    "zohomail.com": "imap.zoho.com",
+    "2k25mail.com": "imap.2k25mail.com"   # <- បន្ថែមបែបនេះ!
 }
 
 def is_valid_email(email_str):
