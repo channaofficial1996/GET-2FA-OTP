@@ -54,15 +54,19 @@ def extract_body(msg):
 def find_otp(text):
     if not text:
         return None
-    # Try most common OTP format: 6 digits on their own line
+    # WhatsApp: 953-473 → 953473
+    match = re.search(r"\b(\d{3})-(\d{3})\b", text)
+    if match:
+        return match.group(1) + match.group(2)
+    # Normal OTP: 6 digits
     match = re.search(r"\b\d{6}\b", text)
     if match:
         return match.group(0)
-    # Any group of 4-8 digits
+    # 4-8 digits
     match = re.search(r"\b\d{4,8}\b", text)
     if match:
         return match.group(0)
-    # OTP with spaces (e.g. 1 2 3 4 5 6)
+    # 1 2 3 4 5 6 style
     match = re.search(r"(\d\s){3,7}\d", text)
     if match:
         return match.group(0).replace(" ", "")
