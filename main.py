@@ -130,8 +130,8 @@ def fetch_otp_from_email(email_address, password):
 
 def generate_otp_from_secret(secret):
     try:
-        # Remove all whitespace (spaces, tabs, newlines)
-        secret_fixed = "".join(secret.split())
+        # Remove all whitespace and dash (spaces, tabs, newlines, dash)
+        secret_fixed = "".join(secret.replace("-", "").split())
         otp = pyotp.TOTP(secret_fixed).now()
         return (
             "🔐 ខាងក្រោមនេះគឺជាកូដ 2FA ពី Secret Key:\n"
