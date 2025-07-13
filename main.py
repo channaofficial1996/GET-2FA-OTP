@@ -13,8 +13,10 @@ IMAP_SERVERS = {
     "yandex.com": "imap.yandex.com",
     "zoho.com": "imap.zoho.com",
     "zohomail.com": "imap.zoho.com",
-    "2k25mail.com": "imap.2k25mail.com"   # <- បន្ថែមបែបនេះ!
+    "gmail.com": "imap.gmail.com",        # ✅ បន្ថែមបញ្ចូលនេះ!
+    "2k25mail.com": "imap.2k25mail.com"
 }
+
 
 def is_valid_email(email_str):
     return re.match(r"[^@]+@[^@]+\.[^@]+", email_str)
@@ -75,15 +77,18 @@ def find_otp(text):
 
 def fetch_otp_from_email(email_address, password):
     try:
-        domain = email_address.split("@")[1]
+        domain = email_address.split("@")[1].lower()
         if domain not in IMAP_SERVERS:
-            return "❌ Bot គាំទ្រតែ Yandex និង Zoho ប៉ុណ្ណោះ។"
+            return "❌ Bot គាំទ្រតែ Yandex, Zoho, Gmail, 2k25mail ប៉ុណ្ណោះ។"
         imap_server = IMAP_SERVERS[domain]
         base_email = email_address.split("+")[0] + "@" + domain
         alias_email = email_address
         mail = imaplib.IMAP4_SSL(imap_server)
+        # Gmail: បំបាត់ space ពី app password
+        if domain == "gmail.com":
+            password = password.replace(" ", "")
         mail.login(base_email, password)
-        folders = ["INBOX", "FB-Security", "Spam", "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"]
+        folders = ["INBOX", "Spam", "[Gmail]/All Mail"]  # Gmail folders
         seen_otps = set()
         for folder in folders:
             try:
@@ -103,11 +108,7 @@ def fetch_otp_from_email(email_address, password):
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
-                    # ✅ Fallback for Zoho/others: always check, do NOT strict alias for Zoho
-                    if domain.endswith("yandex.com"):
-                        if not alias_in_any_header(msg, alias_email):
-                            continue  # Still strict for Yandex
-                    # For Zoho: allow all
+                    # For Gmail: allow all alias (សូម្បីមាន +chana)
                     body = extract_body(msg)
                     otp = find_otp(body)
                     if not otp:
