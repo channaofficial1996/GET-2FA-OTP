@@ -13,10 +13,8 @@ IMAP_SERVERS = {
     "yandex.com": "imap.yandex.com",
     "zoho.com": "imap.zoho.com",
     "zohomail.com": "imap.zoho.com",
-    "gmail.com": "imap.gmail.com",        # ✅ បន្ថែមបញ្ចូលនេះ!
-    "2k25mail.com": "imap.2k25mail.com"
+    "2k25mail.com": "imap.2k25mail.com"   # <- បន្ថែមបែបនេះ!
 }
-
 
 def is_valid_email(email_str):
     return re.match(r"[^@]+@[^@]+\.[^@]+", email_str)
@@ -77,30 +75,15 @@ def find_otp(text):
 
 def fetch_otp_from_email(email_address, password):
     try:
-        domain = email_address.split("@")[1].lower()
+        domain = email_address.split("@")[1]
         if domain not in IMAP_SERVERS:
-            return "❌ Bot គាំទ្រតែ Yandex, Zoho, Gmail, 2k25mail ប៉ុណ្ណោះ។"
+            return "❌ Bot គាំទ្រតែ Yandex និង Zoho ប៉ុណ្ណោះ។"
         imap_server = IMAP_SERVERS[domain]
-
-        # Gmail: always login with base email, remove +... and space from password
-        if domain == "gmail.com":
-            base_email = email_address.split("+")[0] + "@" + domain
-            password = password.replace(" ", "")
-        else:
-            base_email = email_address
-
+        base_email = email_address.split("+")[0] + "@" + domain
         alias_email = email_address
         mail = imaplib.IMAP4_SSL(imap_server)
-        try:
-            mail.login(base_email, password)
-        except Exception as e:
-            return f"❌ Login failed: {e}"
-
-        if domain == "gmail.com":
-            folders = ["INBOX", "Spam", "[Gmail]/All Mail"]
-        else:
-            folders = ["INBOX", "FB-Security", "Spam", "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"]
-
+        mail.login(base_email, password)
+        folders = ["INBOX", "FB-Security", "Spam", "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"]
         seen_otps = set()
         for folder in folders:
             try:
@@ -120,12 +103,11 @@ def fetch_otp_from_email(email_address, password):
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
-
-                    # Only for Yandex: check alias
+                    # ✅ Fallback for Zoho/others: always check, do NOT strict alias for Zoho
                     if domain.endswith("yandex.com"):
                         if not alias_in_any_header(msg, alias_email):
-                            continue
-
+                            continue  # Still strict for Yandex
+                    # For Zoho: allow all
                     body = extract_body(msg)
                     otp = find_otp(body)
                     if not otp:
