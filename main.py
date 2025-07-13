@@ -81,27 +81,26 @@ def fetch_otp_from_email(email_address, password):
         if domain not in IMAP_SERVERS:
             return "❌ Bot គាំទ្រតែ Yandex, Zoho, Gmail, 2k25mail ប៉ុណ្ណោះ។"
         imap_server = IMAP_SERVERS[domain]
-        
-        # For Gmail, always use the base email (no alias!)
+
+        # Gmail: always login with base email, remove +... and space from password
         if domain == "gmail.com":
             base_email = email_address.split("+")[0] + "@" + domain
-            password = password.replace(" ", "")  # Remove spaces from App Password
+            password = password.replace(" ", "")
         else:
-            base_email = email_address.split("+")[0] + "@" + domain
-        
+            base_email = email_address
+
         alias_email = email_address
         mail = imaplib.IMAP4_SSL(imap_server)
         try:
             mail.login(base_email, password)
         except Exception as e:
             return f"❌ Login failed: {e}"
-        
-        # Use folders appropriate for the domain
+
         if domain == "gmail.com":
             folders = ["INBOX", "Spam", "[Gmail]/All Mail"]
         else:
             folders = ["INBOX", "FB-Security", "Spam", "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"]
-        
+
         seen_otps = set()
         for folder in folders:
             try:
@@ -121,10 +120,12 @@ def fetch_otp_from_email(email_address, password):
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
-                    # For Yandex only, check alias strict
+
+                    # Only for Yandex: check alias
                     if domain.endswith("yandex.com"):
                         if not alias_in_any_header(msg, alias_email):
                             continue
+
                     body = extract_body(msg)
                     otp = find_otp(body)
                     if not otp:
