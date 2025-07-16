@@ -12,8 +12,7 @@ BOT_TOKEN = "7845423216:AAHE0QIJy9nJ4jhz-xcQURUCQEvnIAgjEdE"
 IMAP_SERVERS = {
     "yandex.com": "imap.yandex.com",
     "zoho.com": "imap.zoho.com",
-    "zohomail.com": "imap.zoho.com",
-    "2k25mail.com": "imap.2k25mail.com"
+    "zohomail.com": "imap.zoho.com"
 }
 
 def is_valid_email(email_str):
@@ -63,14 +62,16 @@ def find_otp(text, from_email=None, subject=None):
     if match:
         return match.group(1) + match.group(2)
 
-   if from_email and "tiktok.com" in from_email:
-    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
-    for code in matches:
-        code_up = code.upper()
-        if code_up not in blacklist and not code.isdigit():
-            if subject and "verification" in subject.lower():
+    if from_email and "tiktok.com" in from_email:
+        matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
+        for code in matches:
+            code_up = code.upper()
+            if code_up not in blacklist and not code.isdigit():
+                if subject and "verification" in subject.lower():
+                    return code
                 return code
-            return code
+        return None
+
     match = re.search(r"\b\d{6}\b", text)
     if match:
         return match.group(0)
@@ -118,15 +119,13 @@ def fetch_otp_from_email(email_address, password):
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
-
-                    if not alias_in_any_header(msg, alias_email):
-                        continue
-
+                    if domain.endswith("yandex.com"):
+                        if not alias_in_any_header(msg, alias_email):
+                            continue
                     body = extract_body(msg)
                     otp = find_otp(body, from_email=from_email, subject=subject)
                     if not otp:
                         otp = find_otp(subject, from_email=from_email, subject=subject)
-
                     if otp and otp not in seen_otps:
                         seen_otps.add(otp)
                         return (
@@ -145,8 +144,7 @@ def fetch_otp_from_email(email_address, password):
 
 def generate_otp_from_secret(secret):
     try:
-        secret_fixed = "".join(secret.replace("-", "").split())
-        otp = pyotp.TOTP(secret_fixed).now()
+        otp = pyotp.TOTP(secret).now()
         return (
             "🔐 ខាងក្រោមនេះគឺជាកូដ 2FA ពី Secret Key:\n"
             f"✅ 2FA OTP: `{otp}`"
@@ -195,7 +193,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(result, parse_mode="Markdown")
         except Exception as e:
             await update.message.reply_text(f"❌ បញ្ហា: {e}")
-    elif len(text.strip().replace(" ", "")) >= 16:
+    elif len(text.strip()) >= 16 and text.strip().isalnum():
         result = generate_otp_from_secret(text.strip())
         await update.message.reply_text(result, parse_mode="Markdown")
     else:
