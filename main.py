@@ -125,7 +125,8 @@ def fetch_otp_from_email(email_address, password):
                     body = extract_body(msg)
                     otp = find_otp(body, from_email=from_email, subject=subject)
                     if not otp:
-                        otp = find_otp(subject, from_email=from_email, subject=subject)
+                    otp = find_otp(subject, from_email=from_email, subject=subject)
+
                     if otp and otp not in seen_otps:
                         seen_otps.add(otp)
                         return (
