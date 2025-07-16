@@ -108,11 +108,11 @@ def fetch_otp_from_email(email_address, password):
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
-                    # ✅ Fallback for Zoho/others: always check, do NOT strict alias for Zoho
-                    if domain.endswith("yandex.com"):
-                        if not alias_in_any_header(msg, alias_email):
-                            continue  # Still strict for Yandex
-                    # For Zoho: allow all
+
+                    # Strict alias check for ALL domains (not just yandex)
+                    if not alias_in_any_header(msg, alias_email):
+                        continue  # Only show OTP if alias matches
+
                     body = extract_body(msg)
                     otp = find_otp(body)
                     if not otp:
