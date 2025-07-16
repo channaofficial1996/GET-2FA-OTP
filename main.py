@@ -13,16 +13,14 @@ IMAP_SERVERS = {
     "yandex.com": "imap.yandex.com",
     "zoho.com": "imap.zoho.com",
     "zohomail.com": "imap.zoho.com",
-    "2k25mail.com": "imap.2k25mail.com"   # <- បន្ថែមបែបនេះ!
+    "2k25mail.com": "imap.2k25mail.com"
 }
 
 def is_valid_email(email_str):
     return re.match(r"[^@]+@[^@]+\.[^@]+", email_str)
 
 def alias_in_any_header(msg, alias_email):
-    # alias_email: full (including +xxx@yandex.com)
     alias_lower = alias_email.lower()
-    # All possible relevant headers
     for header in ["To", "Delivered-To", "X-Original-To", "Envelope-To"]:
         v = msg.get(header, "")
         if v and alias_lower in v.lower():
@@ -53,10 +51,6 @@ def extract_body(msg):
     return body
 
 def find_otp(text, from_email=None, subject=None):
-    """
-    Find OTP code (works for TikTok, Yandex, Zoho, Facebook, etc).
-    For TikTok: only return 6-character code found in message body, skip blacklisted words.
-    """
     if not text:
         return None
 
@@ -64,40 +58,31 @@ def find_otp(text, from_email=None, subject=None):
         "DOCTYPE", "OFFICE", "DEVICE", "VERIFY", "TOKEN", "ACCESS",
         "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE"
     }
-    
-    # WhatsApp: 953-473 → 953473
+
     match = re.search(r"\b(\d{3})-(\d{3})\b", text)
     if match:
         return match.group(1) + match.group(2)
 
-    # -- TikTok-specific logic --
     if from_email and "tiktok.com" in from_email:
-        # Only body, never subject, and must be 6 letters/numbers, not in blacklist, not all digits
         matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
         for code in matches:
             code_up = code.upper()
             if code_up not in blacklist and not code.isdigit():
-                # Extra: check subject/body for context keyword
                 if subject and "verification" in subject.lower():
                     return code
                 return code
         return None
 
-    # -- Generic logic for other OTPs --
-    # Normal OTP: 6 digits
     match = re.search(r"\b\d{6}\b", text)
     if match:
         return match.group(0)
-    # 4-8 digits
     match = re.search(r"\b\d{4,8}\b", text)
     if match:
         return match.group(0)
-    # 1 2 3 4 5 6 style
     match = re.search(r"(\d\s){3,7}\d", text)
     if match:
         return match.group(0).replace(" ", "")
 
-    # Final fallback: 6-char code (not blacklisted) for others
     matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
     for code in matches:
         code_up = code.upper()
@@ -136,14 +121,14 @@ def fetch_otp_from_email(email_address, password):
                     folder_name = folder
                     to_field = msg.get("To", "")
 
-                    # Strict alias check for ALL domains (not just yandex)
                     if not alias_in_any_header(msg, alias_email):
-                        continue  # Only show OTP if alias matches
+                        continue
 
                     body = extract_body(msg)
-                    otp = find_otp(body)
+                    otp = find_otp(body, from_email=from_email, subject=subject)
                     if not otp:
-                        otp = find_otp(subject)
+                        otp = find_otp(subject, from_email=from_email, subject=subject)
+
                     if otp and otp not in seen_otps:
                         seen_otps.add(otp)
                         return (
@@ -162,7 +147,6 @@ def fetch_otp_from_email(email_address, password):
 
 def generate_otp_from_secret(secret):
     try:
-        # Remove all whitespace and dash (spaces, tabs, newlines, dash)
         secret_fixed = "".join(secret.replace("-", "").split())
         otp = pyotp.TOTP(secret_fixed).now()
         return (
@@ -173,9 +157,7 @@ def generate_otp_from_secret(secret):
         return f"❌ Secret Key មិនត្រឹមត្រូវទេ: {e}"
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        ["📷 QR GET KEY", "🔐 2FA OTP", "📩 Mail OTP"]
-    ]
+    keyboard = [["📷 QR GET KEY", "🔐 2FA OTP", "📩 Mail OTP"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     full_name = update.effective_user.full_name
     await update.message.reply_text(
@@ -215,7 +197,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(result, parse_mode="Markdown")
         except Exception as e:
             await update.message.reply_text(f"❌ បញ្ហា: {e}")
-    # FIX HERE!
     elif len(text.strip().replace(" ", "")) >= 16:
         result = generate_otp_from_secret(text.strip())
         await update.message.reply_text(result, parse_mode="Markdown")
@@ -232,7 +213,6 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             qr_result = decode(img)
             if qr_result and qr_result[0].data:
                 qr_data = qr_result[0].data.decode("utf-8")
-                import re
                 secret = None
                 if qr_data.startswith("otpauth://"):
                     match = re.search(r"secret=([A-Z2-7]+)", qr_data, re.I)
