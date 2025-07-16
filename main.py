@@ -66,7 +66,7 @@ def find_otp(text, from_email=None, subject=None):
         matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
         for code in matches:
             code_up = code.upper()
-            if re.match(r"^[A-Z0-9]{6}$", code_up) and code_up not in blacklist:
+            if code_up not in blacklist:
                 return code_up
         return None
 
