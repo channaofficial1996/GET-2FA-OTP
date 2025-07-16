@@ -52,41 +52,58 @@ def extract_body(msg):
         body += "\n" + html_text
     return body
 
-def find_otp(text):
+def find_otp(text, from_email=None, subject=None):
+    """
+    Find OTP code (works for TikTok, Yandex, Zoho, Facebook, etc).
+    For TikTok: only return 6-character code found in message body, skip blacklisted words.
+    """
     if not text:
         return None
 
+    blacklist = {
+        "DOCTYPE", "OFFICE", "DEVICE", "VERIFY", "TOKEN", "ACCESS",
+        "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE"
+    }
+    
     # WhatsApp: 953-473 → 953473
     match = re.search(r"\b(\d{3})-(\d{3})\b", text)
     if match:
         return match.group(1) + match.group(2)
 
-    # Exclude some common false positives for 6-character codes
-    exclude = {"DOCTYPE", "OFFICE", "SUBJECT", "FOLDER", "INBOX", "FROM", "EMAIL", "TIKTOK", "BUSINESS", "VERIFICATION", "HELP", "MESSAGE", "HEADER"}
+    # -- TikTok-specific logic --
+    if from_email and "tiktok.com" in from_email:
+        # Only body, never subject, and must be 6 letters/numbers, not in blacklist, not all digits
+        matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
+        for code in matches:
+            code_up = code.upper()
+            if code_up not in blacklist and not code.isdigit():
+                # Extra: check subject/body for context keyword
+                if subject and "verification" in subject.lower():
+                    return code
+                return code
+        return None
 
-    # TikTok/Meta: 6 alphanumeric (but not in exclude list)
-    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
-    for code in matches:
-        if code.upper() not in exclude:
-            return code
-
-    # 6 digits
+    # -- Generic logic for other OTPs --
+    # Normal OTP: 6 digits
     match = re.search(r"\b\d{6}\b", text)
     if match:
         return match.group(0)
-
     # 4-8 digits
     match = re.search(r"\b\d{4,8}\b", text)
     if match:
         return match.group(0)
-
     # 1 2 3 4 5 6 style
     match = re.search(r"(\d\s){3,7}\d", text)
     if match:
         return match.group(0).replace(" ", "")
 
+    # Final fallback: 6-char code (not blacklisted) for others
+    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
+    for code in matches:
+        code_up = code.upper()
+        if code_up not in blacklist:
+            return code
     return None
-
 
 def fetch_otp_from_email(email_address, password):
     try:
