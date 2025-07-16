@@ -59,6 +59,10 @@ def find_otp(text):
     match = re.search(r"\b(\d{3})-(\d{3})\b", text)
     if match:
         return match.group(1) + match.group(2)
+    # TikTok/Alphanumeric code: 6-8 chars (A-Z, 0-9)
+    match = re.search(r"\b[A-Z0-9]{6,8}\b", text)
+    if match:
+        return match.group(0)
     # Normal OTP: 6 digits
     match = re.search(r"\b\d{6}\b", text)
     if match:
@@ -72,6 +76,7 @@ def find_otp(text):
     if match:
         return match.group(0).replace(" ", "")
     return None
+
 
 def fetch_otp_from_email(email_address, password):
     try:
