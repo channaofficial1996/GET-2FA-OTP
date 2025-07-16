@@ -63,16 +63,14 @@ def find_otp(text, from_email=None, subject=None):
     if match:
         return match.group(1) + match.group(2)
 
-    if from_email and "tiktok.com" in from_email:
-        matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
-        for code in matches:
-            code_up = code.upper()
-            if code_up not in blacklist and not code.isdigit():
-                if subject and "verification" in subject.lower():
-                    return code
+   if from_email and "tiktok.com" in from_email:
+    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
+    for code in matches:
+        code_up = code.upper()
+        if code_up not in blacklist and not code.isdigit():
+            if subject and "verification" in subject.lower():
                 return code
-        return None
-
+            return code
     match = re.search(r"\b\d{6}\b", text)
     if match:
         return match.group(0)
