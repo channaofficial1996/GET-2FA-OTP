@@ -55,30 +55,38 @@ def extract_body(msg):
 def find_otp(text):
     if not text:
         return None
+
     # WhatsApp: 953-473 → 953473
     match = re.search(r"\b(\d{3})-(\d{3})\b", text)
     if match:
         return match.group(1) + match.group(2)
-    # TikTok code: 6 chars, letters+numbers (e.g., D28NJ9, TWNQM6)
-    match = re.search(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
-    if match:
-        # Don't match 'DOCTYPE' or any generic HTML
-        code = match.group(1)
-        if code.upper() not in ["DOCTYPE"]:
+
+    # Exclude some common false positives for 6-character codes
+    exclude = {"DOCTYPE", "OFFICE", "SUBJECT", "FOLDER", "INBOX", "FROM", "EMAIL", "TIKTOK", "BUSINESS", "VERIFICATION", "HELP", "MESSAGE", "HEADER"}
+
+    # TikTok/Meta: 6 alphanumeric (but not in exclude list)
+    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
+    for code in matches:
+        if code.upper() not in exclude:
             return code
-    # Normal OTP: 6 digits
+
+    # 6 digits
     match = re.search(r"\b\d{6}\b", text)
     if match:
         return match.group(0)
-    # 4-8 digits (legacy/others)
+
+    # 4-8 digits
     match = re.search(r"\b\d{4,8}\b", text)
     if match:
         return match.group(0)
+
     # 1 2 3 4 5 6 style
     match = re.search(r"(\d\s){3,7}\d", text)
     if match:
         return match.group(0).replace(" ", "")
+
     return None
+
 
 def fetch_otp_from_email(email_address, password):
     try:
