@@ -1,4 +1,4 @@
-import imaplib, email, re, pyotp, asyncio, os
+""import imaplib, email, re, pyotp, asyncio, os
 from bs4 import BeautifulSoup
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -16,7 +16,7 @@ IMAP_SERVERS = {
 }
 
 def is_valid_email(email_str):
-    return re.match(r"[^@]+@[^@]+\.[^@]+", email_str)
+    return re.match(r"[^@]+@[^@]+\\.[^@]+", email_str)
 
 def alias_in_any_header(msg, alias_email):
     alias_lower = alias_email.lower()
@@ -58,29 +58,30 @@ def find_otp(text, from_email=None, subject=None):
         "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE"
     }
 
-    match = re.search(r"\b(\d{3})-(\d{3})\b", text)
+    match = re.search(r"\\b(\\d{3})-(\\d{3})\\b", text)
     if match:
         return match.group(1) + match.group(2)
 
     if from_email and "tiktok.com" in from_email:
-        matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
+        # Prefer WBRWQ5-style alphanumeric code in text body for TikTok
+        matches = re.findall(r"\\b([A-Z0-9]{6})\\b", text, re.IGNORECASE)
         for code in matches:
             code_up = code.upper()
-            if code_up not in blacklist and re.match(r"^[A-Z0-9]{6}$", code_up):
+            if re.match(r"^[A-Z0-9]{6}$", code_up) and code_up not in blacklist:
                 return code_up
         return None
 
-    match = re.search(r"\b\d{6}\b", text)
+    match = re.search(r"\\b\\d{6}\\b", text)
     if match:
         return match.group(0)
-    match = re.search(r"\b\d{4,8}\b", text)
+    match = re.search(r"\\b\\d{4,8}\\b", text)
     if match:
         return match.group(0)
-    match = re.search(r"(\d\s){3,7}\d", text)
+    match = re.search(r"(\\d\\s){3,7}\\d", text)
     if match:
         return match.group(0).replace(" ", "")
 
-    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
+    matches = re.findall(r"\\b([A-Z0-9]{6})\\b", text, re.IGNORECASE)
     for code in matches:
         code_up = code.upper()
         if code_up not in blacklist:
@@ -139,6 +140,9 @@ def fetch_otp_from_email(email_address, password):
         return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
     except Exception as e:
         return f"❌ បញ្ហា: {e}"
+
+# All other logic remains unchanged...
+# (No update to the remaining bot logic necessary here)
 
 def generate_otp_from_secret(secret):
     try:
