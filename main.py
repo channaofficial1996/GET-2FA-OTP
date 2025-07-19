@@ -50,55 +50,52 @@ def extract_body(msg):
     return body
 
 def find_otp(text, from_email=None, subject=None):
-    """
-    Detect TikTok OTP (all digits or alphanumeric) + generic OTP logic for other providers.
-    """
     if not text:
         return None
 
-    # 1. WhatsApp: 953-473 → 953473
-    match = re.search(r"\b(\d{3})-(\d{3})\b", text)
-    if match:
-        return match.group(1) + match.group(2)
-
-    # Blacklist (for TikTok: don't allow these codes)
     blacklist = {
         "DOCTYPE", "OFFICE", "DEVICE", "VERIFY", "TOKEN", "ACCESS",
         "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE"
     }
 
-    # 2. TikTok-specific: (detect email from TikTok)
-    if from_email and "tiktok.com" in from_email:
-        # -- 2.1 All-digits code (TikTok sometimes sends this)
+    # WhatsApp: 953-473 → 953473
+    match = re.search(r"\b(\d{3})-(\d{3})\b", text)
+    if match:
+        return match.group(1) + match.group(2)
+
+    # ✅ TikTok-specific: detect both 6 digit & 6 alphanum code (but not blacklist)
+    if from_email and "tiktok.com" in from_email.lower():
+        # 1. Try 6 digits (only digits)
         match = re.search(r"\b\d{6}\b", text)
         if match:
             return match.group(0)
-        # -- 2.2 Alphanumeric code (letters+digits, not all digit, not in blacklist)
+        # 2. Try 6 chars (letters/numbers), must not be in blacklist
+        lines = text.splitlines()
+        for line in lines:
+            code_candidate = line.strip()
+            if re.fullmatch(r"[A-Za-z0-9]{6}", code_candidate):
+                if code_candidate.upper() not in blacklist:
+                    return code_candidate
+        # 3. Fallback: anywhere in text, 6 alphanum not in blacklist
         matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
         for code in matches:
-            code_up = code.upper()
-            if code_up not in blacklist:
+            if code.upper() not in blacklist:
                 return code
         return None
 
-    # 3. Generic logic for other providers (including Yandex, Zoho, Facebook, ...)
-    # 3.1. 6 digit
+    # Generic fallback
     match = re.search(r"\b\d{6}\b", text)
     if match:
         return match.group(0)
-    # 3.2. 4-8 digits
     match = re.search(r"\b\d{4,8}\b", text)
     if match:
         return match.group(0)
-    # 3.3. 1 2 3 4 5 6 style
     match = re.search(r"(\d\s){3,7}\d", text)
     if match:
         return match.group(0).replace(" ", "")
-    # 3.4. Alphanumeric fallback (not blacklist)
     matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
     for code in matches:
-        code_up = code.upper()
-        if code_up not in blacklist:
+        if code.upper() not in blacklist:
             return code
     return None
 
