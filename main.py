@@ -1,6 +1,6 @@
 import imaplib, email, re, pyotp, asyncio, os
 from bs4 import BeautifulSoup
-from telegram import Update, ReplyKeyboardMarkup, InputFile
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 )
@@ -58,27 +58,12 @@ def find_otp(text, from_email=None, subject=None):
         "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE"
     }
 
-    # Microsoft: Security code: 352732 (subject or body)
-    if from_email and "microsoft.com" in from_email.lower():
-        # 1. "Security code: 352732" in body
-        match = re.search(r"Security code[:：]?\s*([0-9]{6,8})", text, re.IGNORECASE)
-        if match:
-            return match.group(1)
-        # 2. Fallback: first 6 digits in body or subject
-        match = re.search(r"\b\d{6}\b", text)
-        if match:
-            return match.group(0)
-        match = re.search(r"\b\d{6}\b", subject or "")
-        if match:
-            return match.group(0)
-        return None
-
     # WhatsApp: 953-473 → 953473
     match = re.search(r"\b(\d{3})-(\d{3})\b", text)
     if match:
         return match.group(1) + match.group(2)
 
-    # TikTok: 6 digits or 6 alphanum (not blacklist)
+    # TikTok: ចាប់ទាំង 6 digit & 6 alphanum
     if from_email and "tiktok.com" in from_email.lower():
         match = re.search(r"\b\d{6}\b", text)
         if match:
@@ -95,23 +80,18 @@ def find_otp(text, from_email=None, subject=None):
                 return code
         return None
 
-    # Fallback for other sources
-    match = re.search(r"\b\d{6}\b", text)
-    if match:
-        return match.group(0)
-    match = re.search(r"\b\d{4,8}\b", text)
-    if match:
-        return match.group(0)
-    match = re.search(r"(\d\s){3,7}\d", text)
-    if match:
-        return match.group(0).replace(" ", "")
-    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
-    for code in matches:
-        if code.upper() not in blacklist:
-            return code
-    return None
+    # Microsoft (accountprotection.microsoft.com): ចាប់ OTP 6 digit
+    if from_email and "accountprotection.microsoft.com" in from_email.lower():
+        match = re.search(r"\b\d{6}\b", text)
+        if match:
+            return match.group(0)
+        # Some fallback (rare): try any 6 digit in subject
+        if subject:
+            match = re.search(r"\b\d{6}\b", subject)
+            if match:
+                return match.group(0)
 
-    # -------- Generic fallback --------
+    # Generic fallback (OTP 6 digit / 4-8 digit / 6-char alphanum)
     match = re.search(r"\b\d{6}\b", text)
     if match:
         return match.group(0)
@@ -157,6 +137,7 @@ def fetch_otp_from_email(email_address, password):
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
+                    # Alias check Yandex only
                     if domain.endswith("yandex.com"):
                         if not alias_in_any_header(msg, alias_email):
                             continue
@@ -179,8 +160,6 @@ def fetch_otp_from_email(email_address, password):
         return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
     except Exception as e:
         return f"❌ បញ្ហា: {e}"
-
-# Remaining logic unchanged for bot operation
 
 def generate_otp_from_secret(secret):
     try:
