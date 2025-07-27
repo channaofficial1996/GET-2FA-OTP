@@ -58,40 +58,58 @@ def find_otp(text, from_email=None, subject=None):
         "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE"
     }
 
+    # Microsoft: Security code: 352732 (subject or body)
+    if from_email and "microsoft.com" in from_email.lower():
+        # 1. "Security code: 352732" in body
+        match = re.search(r"Security code[:：]?\s*([0-9]{6,8})", text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        # 2. Fallback: first 6 digits in body or subject
+        match = re.search(r"\b\d{6}\b", text)
+        if match:
+            return match.group(0)
+        match = re.search(r"\b\d{6}\b", subject or "")
+        if match:
+            return match.group(0)
+        return None
+
     # WhatsApp: 953-473 → 953473
     match = re.search(r"\b(\d{3})-(\d{3})\b", text)
     if match:
         return match.group(1) + match.group(2)
 
-    # -------- Microsoft security code --------
-    # Detect any sender or subject with 'microsoft' + 'security code'
-    ms_condition = False
-    if from_email and ("microsoft.com" in from_email.lower() or "accountprotection.microsoft.com" in from_email.lower()):
-        ms_condition = True
-    if subject and "microsoft" in subject.lower() and "security code" in subject.lower():
-        ms_condition = True
-    if ms_condition or (text and "security code" in text.lower()):
-        # Match Security code: 352732 (even with space, colon, dash etc)
-        match = re.search(r"security code[:\s\-]*([0-9]{6})", text, re.IGNORECASE)
-        if match:
-            return match.group(1)
-        # Fallback: any 6 digit
-        match = re.search(r"\b\d{6}\b", text)
-        if match:
-            return match.group(0)
-
-    # -------- TikTok (6 digits OR 6 alphanum, must not in blacklist) --------
+    # TikTok: 6 digits or 6 alphanum (not blacklist)
     if from_email and "tiktok.com" in from_email.lower():
-        # Try 6 digits (ex: 908720)
         match = re.search(r"\b\d{6}\b", text)
         if match:
             return match.group(0)
-        # Try 6 alphanum (ex: Q6PEEG, D28NJ9)
+        lines = text.splitlines()
+        for line in lines:
+            code_candidate = line.strip()
+            if re.fullmatch(r"[A-Za-z0-9]{6}", code_candidate):
+                if code_candidate.upper() not in blacklist:
+                    return code_candidate
         matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
         for code in matches:
             if code.upper() not in blacklist:
                 return code
         return None
+
+    # Fallback for other sources
+    match = re.search(r"\b\d{6}\b", text)
+    if match:
+        return match.group(0)
+    match = re.search(r"\b\d{4,8}\b", text)
+    if match:
+        return match.group(0)
+    match = re.search(r"(\d\s){3,7}\d", text)
+    if match:
+        return match.group(0).replace(" ", "")
+    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
+    for code in matches:
+        if code.upper() not in blacklist:
+            return code
+    return None
 
     # -------- Generic fallback --------
     match = re.search(r"\b\d{6}\b", text)
