@@ -63,13 +63,19 @@ def find_otp(text, from_email=None, subject=None):
     if match:
         return match.group(1) + match.group(2)
 
-    # -------- Microsoft 6-digit security code --------
-    ms_keywords = ["microsoft account team", "security code", "account security code"]
-    if (
-        (from_email and "microsoft" in from_email.lower()) or
-        (subject and any(kw in subject.lower() for kw in ms_keywords)) or
-        any(kw in (text or "").lower() for kw in ms_keywords)
-    ):
+    # -------- Microsoft security code --------
+    # Detect any sender or subject with 'microsoft' + 'security code'
+    ms_condition = False
+    if from_email and ("microsoft.com" in from_email.lower() or "accountprotection.microsoft.com" in from_email.lower()):
+        ms_condition = True
+    if subject and "microsoft" in subject.lower() and "security code" in subject.lower():
+        ms_condition = True
+    if ms_condition or (text and "security code" in text.lower()):
+        # Match Security code: 352732 (even with space, colon, dash etc)
+        match = re.search(r"security code[:\s\-]*([0-9]{6})", text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        # Fallback: any 6 digit
         match = re.search(r"\b\d{6}\b", text)
         if match:
             return match.group(0)
@@ -87,39 +93,7 @@ def find_otp(text, from_email=None, subject=None):
                 return code
         return None
 
-    # -------- Generic Fallbacks --------
-    match = re.search(r"\b\d{6}\b", text)
-    if match:
-        return match.group(0)
-    match = re.search(r"\b\d{4,8}\b", text)
-    if match:
-        return match.group(0)
-    match = re.search(r"(\d\s){3,7}\d", text)
-    if match:
-        return match.group(0).replace(" ", "")
-    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
-    for code in matches:
-        if code.upper() not in blacklist:
-            return code
-    return None
-
-    # --- Generic fallback ---
-    match = re.search(r"\b\d{6}\b", text)
-    if match:
-        return match.group(0)
-    match = re.search(r"\b\d{4,8}\b", text)
-    if match:
-        return match.group(0)
-    match = re.search(r"(\d\s){3,7}\d", text)
-    if match:
-        return match.group(0).replace(" ", "")
-    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
-    for code in matches:
-        if code.upper() not in blacklist:
-            return code
-    return None
-
-    # Generic fallback
+    # -------- Generic fallback --------
     match = re.search(r"\b\d{6}\b", text)
     if match:
         return match.group(0)
