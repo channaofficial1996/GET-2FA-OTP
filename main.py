@@ -63,37 +63,45 @@ def find_otp(text, from_email=None, subject=None):
     if match:
         return match.group(1) + match.group(2)
 
-    # --- Microsoft/Outlook code: "Security code: 123456" ---
-    if (from_email and ("microsoft" in from_email.lower() or "outlook" in from_email.lower())) \
-        or (subject and ("security code" in subject.lower() or "microsoft" in subject.lower())):
-        # Find format: Security code: 123456
-        match = re.search(r"Security code[:：]?\s*([0-9]{6})", text, re.IGNORECASE)
-        if match:
-            return match.group(1)
-        # fallback: any 6 digit code (not blacklist)
+    # -------- Microsoft 6-digit security code --------
+    ms_keywords = ["microsoft account team", "security code", "account security code"]
+    if (
+        (from_email and "microsoft" in from_email.lower()) or
+        (subject and any(kw in subject.lower() for kw in ms_keywords)) or
+        any(kw in (text or "").lower() for kw in ms_keywords)
+    ):
         match = re.search(r"\b\d{6}\b", text)
         if match:
             return match.group(0)
 
-    # --- TikTok-specific: detect both 6 digit & 6 alphanum code (not blacklist) ---
+    # -------- TikTok (6 digits OR 6 alphanum, must not in blacklist) --------
     if from_email and "tiktok.com" in from_email.lower():
-        # 1. Try 6 digits (only digits)
+        # Try 6 digits (ex: 908720)
         match = re.search(r"\b\d{6}\b", text)
         if match:
             return match.group(0)
-        # 2. Try 6 chars (letters/numbers), must not be in blacklist
-        lines = text.splitlines()
-        for line in lines:
-            code_candidate = line.strip()
-            if re.fullmatch(r"[A-Za-z0-9]{6}", code_candidate):
-                if code_candidate.upper() not in blacklist:
-                    return code_candidate
-        # 3. Fallback: anywhere in text, 6 alphanum not in blacklist
+        # Try 6 alphanum (ex: Q6PEEG, D28NJ9)
         matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
         for code in matches:
             if code.upper() not in blacklist:
                 return code
         return None
+
+    # -------- Generic Fallbacks --------
+    match = re.search(r"\b\d{6}\b", text)
+    if match:
+        return match.group(0)
+    match = re.search(r"\b\d{4,8}\b", text)
+    if match:
+        return match.group(0)
+    match = re.search(r"(\d\s){3,7}\d", text)
+    if match:
+        return match.group(0).replace(" ", "")
+    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
+    for code in matches:
+        if code.upper() not in blacklist:
+            return code
+    return None
 
     # --- Generic fallback ---
     match = re.search(r"\b\d{6}\b", text)
