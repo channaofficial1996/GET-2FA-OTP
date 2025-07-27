@@ -63,7 +63,19 @@ def find_otp(text, from_email=None, subject=None):
     if match:
         return match.group(1) + match.group(2)
 
-    # ✅ TikTok-specific: detect both 6 digit & 6 alphanum code (but not blacklist)
+    # --- Microsoft/Outlook code: "Security code: 123456" ---
+    if (from_email and ("microsoft" in from_email.lower() or "outlook" in from_email.lower())) \
+        or (subject and ("security code" in subject.lower() or "microsoft" in subject.lower())):
+        # Find format: Security code: 123456
+        match = re.search(r"Security code[:：]?\s*([0-9]{6})", text, re.IGNORECASE)
+        if match:
+            return match.group(1)
+        # fallback: any 6 digit code (not blacklist)
+        match = re.search(r"\b\d{6}\b", text)
+        if match:
+            return match.group(0)
+
+    # --- TikTok-specific: detect both 6 digit & 6 alphanum code (not blacklist) ---
     if from_email and "tiktok.com" in from_email.lower():
         # 1. Try 6 digits (only digits)
         match = re.search(r"\b\d{6}\b", text)
@@ -82,6 +94,22 @@ def find_otp(text, from_email=None, subject=None):
             if code.upper() not in blacklist:
                 return code
         return None
+
+    # --- Generic fallback ---
+    match = re.search(r"\b\d{6}\b", text)
+    if match:
+        return match.group(0)
+    match = re.search(r"\b\d{4,8}\b", text)
+    if match:
+        return match.group(0)
+    match = re.search(r"(\d\s){3,7}\d", text)
+    if match:
+        return match.group(0).replace(" ", "")
+    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
+    for code in matches:
+        if code.upper() not in blacklist:
+            return code
+    return None
 
     # Generic fallback
     match = re.search(r"\b\d{6}\b", text)
