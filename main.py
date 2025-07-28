@@ -1,13 +1,14 @@
-import imaplib, email, re, pyotp, asyncio
+import imaplib, email, re, pyotp, asyncio, os
 from bs4 import BeautifulSoup
-from telegram import Update, ReplyKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, InputFile
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 )
 from PIL import Image
 from pyzbar.pyzbar import decode
 
-BOT_TOKEN = "7845423216:AAHE0QIJy9nJ4jhz-xcQURUCQEvnIAgjEdE"
+BOT_TOKEN = "8286165511:AAFEN68nARNQh3bMeNW49jaxj_K0WtpPvBg"
+
 IMAP_SERVERS = {
     "yandex.com": "imap.yandex.com",
     "zoho.com": "imap.zoho.com",
@@ -26,18 +27,22 @@ def alias_in_any_header(msg, alias_email):
     return False
 
 def extract_body(msg):
-    body, html_content = "", ""
+    body = ""
+    html_content = ""
     if msg.is_multipart():
         for part in msg.walk():
             content_type = part.get_content_type()
             payload = part.get_payload(decode=True)
             if payload:
                 text = payload.decode(errors="ignore")
-                if content_type == "text/plain": body += text + "\n"
-                elif content_type == "text/html": html_content += text + "\n"
+                if content_type == "text/plain":
+                    body += text + "\n"
+                elif content_type == "text/html":
+                    html_content += text + "\n"
     else:
         payload = msg.get_payload(decode=True)
-        if payload: body = payload.decode(errors="ignore")
+        if payload:
+            body = payload.decode(errors="ignore")
     if html_content:
         soup = BeautifulSoup(html_content, "html.parser")
         html_text = soup.get_text(separator="\n")
@@ -45,47 +50,58 @@ def extract_body(msg):
     return body
 
 def find_otp(text, from_email=None, subject=None):
-    if not text: return None
-    # Handle WhatsApp 123-456 style
+    if not text:
+        return None
+
+    blacklist = {
+        "DOCTYPE", "OFFICE", "DEVICE", "VERIFY", "TOKEN", "ACCESS",
+        "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE"
+    }
+
+    # WhatsApp: 953-473 → 953473
     match = re.search(r"\b(\d{3})-(\d{3})\b", text)
-    if match: return match.group(1) + match.group(2)
-    # TikTok (6 digits or 6 alphanum)
+    if match:
+        return match.group(1) + match.group(2)
+
+    # ✅ TikTok-specific: detect both 6 digit & 6 alphanum code (but not blacklist)
     if from_email and "tiktok.com" in from_email.lower():
+        # 1. Try 6 digits (only digits)
         match = re.search(r"\b\d{6}\b", text)
-        if match: return match.group(0)
+        if match:
+            return match.group(0)
+        # 2. Try 6 chars (letters/numbers), must not be in blacklist
         lines = text.splitlines()
         for line in lines:
-            code = line.strip()
-            if re.fullmatch(r"[A-Za-z0-9]{6}", code) and code.upper() not in {"DOCTYPE", "OFFICE", "DEVICE", "VERIFY", "TOKEN", "ACCESS", "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE"}:
-                return code
+            code_candidate = line.strip()
+            if re.fullmatch(r"[A-Za-z0-9]{6}", code_candidate):
+                if code_candidate.upper() not in blacklist:
+                    return code_candidate
+        # 3. Fallback: anywhere in text, 6 alphanum not in blacklist
         matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
         for code in matches:
-            if code.upper() not in {"DOCTYPE", "OFFICE", "DEVICE", "VERIFY", "TOKEN", "ACCESS", "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE"}:
+            if code.upper() not in blacklist:
                 return code
         return None
-    # Microsoft (accountprotection.microsoft.com): only 6 digit
-    if from_email and "accountprotection.microsoft.com" in from_email.lower():
-        match = re.search(r"\b\d{6}\b", text)
-        if match: return match.group(0)
-        if subject:
-            match = re.search(r"\b\d{6}\b", subject)
-            if match: return match.group(0)
-    # Generic: any 6 digit/6 char/4-8 digit code
+
+    # Generic fallback
     match = re.search(r"\b\d{6}\b", text)
-    if match: return match.group(0)
+    if match:
+        return match.group(0)
     match = re.search(r"\b\d{4,8}\b", text)
-    if match: return match.group(0)
+    if match:
+        return match.group(0)
     match = re.search(r"(\d\s){3,7}\d", text)
-    if match: return match.group(0).replace(" ", "")
+    if match:
+        return match.group(0).replace(" ", "")
     matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
     for code in matches:
-        if code.upper() not in {"DOCTYPE", "OFFICE", "DEVICE", "VERIFY", "TOKEN", "ACCESS", "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE"}:
+        if code.upper() not in blacklist:
             return code
     return None
 
 def fetch_otp_from_email(email_address, password):
     try:
-        domain = email_address.split("@")[1].lower()
+        domain = email_address.split("@")[1]
         if domain not in IMAP_SERVERS:
             return "❌ Bot គាំទ្រតែ Yandex និង Zoho ប៉ុណ្ណោះ។"
         imap_server = IMAP_SERVERS[domain]
@@ -98,13 +114,16 @@ def fetch_otp_from_email(email_address, password):
         for folder in folders:
             try:
                 select_status, _ = mail.select(folder)
-                if select_status != "OK": continue
+                if select_status != "OK":
+                    continue
                 result, data = mail.search(None, "ALL")
-                if result != "OK": continue
+                if result != "OK":
+                    continue
                 email_ids = data[0].split()[-20:]
                 for eid in reversed(email_ids):
                     result, data = mail.fetch(eid, "(RFC822)")
-                    if result != "OK": continue
+                    if result != "OK":
+                        continue
                     msg = email.message_from_bytes(data[0][1])
                     subject = msg.get("Subject", "")
                     from_email = msg.get("From", "")
@@ -132,6 +151,8 @@ def fetch_otp_from_email(email_address, password):
         return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
     except Exception as e:
         return f"❌ បញ្ហា: {e}"
+
+# Remaining logic unchanged for bot operation
 
 def generate_otp_from_secret(secret):
     try:
@@ -203,7 +224,8 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 secret = None
                 if qr_data.startswith("otpauth://"):
                     match = re.search(r"secret=([A-Z2-7]+)", qr_data, re.I)
-                    if match: secret = match.group(1)
+                    if match:
+                        secret = match.group(1)
                 if secret:
                     await update.message.reply_text(f"✅ Secret Key: `{secret}`", parse_mode="Markdown")
                 else:
