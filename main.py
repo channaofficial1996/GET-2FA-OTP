@@ -1,3 +1,4 @@
+
 import imaplib, email, re, pyotp, asyncio, os
 from bs4 import BeautifulSoup
 from telegram import Update, ReplyKeyboardMarkup, InputFile
@@ -58,32 +59,26 @@ def find_otp(text, from_email=None, subject=None):
         "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE"
     }
 
-    # WhatsApp: 953-473 → 953473
     match = re.search(r"\b(\d{3})-(\d{3})\b", text)
     if match:
         return match.group(1) + match.group(2)
 
-    # ✅ TikTok-specific: detect both 6 digit & 6 alphanum code (but not blacklist)
     if from_email and "tiktok.com" in from_email.lower():
-        # 1. Try 6 digits (only digits)
         match = re.search(r"\b\d{6}\b", text)
         if match:
             return match.group(0)
-        # 2. Try 6 chars (letters/numbers), must not be in blacklist
         lines = text.splitlines()
         for line in lines:
             code_candidate = line.strip()
             if re.fullmatch(r"[A-Za-z0-9]{6}", code_candidate):
                 if code_candidate.upper() not in blacklist:
                     return code_candidate
-        # 3. Fallback: anywhere in text, 6 alphanum not in blacklist
         matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
         for code in matches:
             if code.upper() not in blacklist:
                 return code
         return None
 
-    # Generic fallback
     match = re.search(r"\b\d{6}\b", text)
     if match:
         return match.group(0)
@@ -152,8 +147,6 @@ def fetch_otp_from_email(email_address, password):
     except Exception as e:
         return f"❌ បញ្ហា: {e}"
 
-# Remaining logic unchanged for bot operation
-
 def generate_otp_from_secret(secret):
     try:
         otp = pyotp.TOTP(secret).now()
@@ -205,9 +198,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(result, parse_mode="Markdown")
         except Exception as e:
             await update.message.reply_text(f"❌ បញ្ហា: {e}")
-   elif len(text.replace(" ", "").strip()) >= 16 and text.replace(" ", "").strip().isalnum():
-    result = generate_otp_from_secret(text.replace(" ", "").strip())
-    await update.message.reply_text(result, parse_mode="Markdown")
+    elif len(text.replace(" ", "").strip()) >= 16 and text.replace(" ", "").strip().isalnum():
+        result = generate_otp_from_secret(text.replace(" ", "").strip())
+        await update.message.reply_text(result, parse_mode="Markdown")
     else:
         await update.message.reply_text("⚠️ សូមបញ្ចូល `email|password` ឬ Secret Key ត្រឹមត្រូវ")
 
