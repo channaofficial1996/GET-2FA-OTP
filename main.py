@@ -205,9 +205,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(result, parse_mode="Markdown")
         except Exception as e:
             await update.message.reply_text(f"❌ បញ្ហា: {e}")
-    elif len(text.strip()) >= 16 and text.strip().isalnum():
-        result = generate_otp_from_secret(text.strip())
-        await update.message.reply_text(result, parse_mode="Markdown")
+   elif len(text.replace(" ", "").strip()) >= 16 and text.replace(" ", "").strip().isalnum():
+    result = generate_otp_from_secret(text.replace(" ", "").strip())
+    await update.message.reply_text(result, parse_mode="Markdown")
     else:
         await update.message.reply_text("⚠️ សូមបញ្ចូល `email|password` ឬ Secret Key ត្រឹមត្រូវ")
 
