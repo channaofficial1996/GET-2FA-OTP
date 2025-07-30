@@ -104,10 +104,14 @@ def fetch_otp_from_email(email_address, password):
         alias_email = email_address
         mail = imaplib.IMAP4_SSL(imap_server)
         mail.login(base_email, password)
-        folders = ["INBOX", "FB-Security", "Spam", "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"]
+        folders = [
+            "INBOX", "FB-Security", "Spam", "Junk",
+            "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"
+        ]
         seen_otps = set()
         for folder in folders:
             try:
+                print(f"Checking folder: {folder}")  # Optional debug
                 select_status, _ = mail.select(folder)
                 if select_status != "OK":
                     continue
