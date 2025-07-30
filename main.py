@@ -1,7 +1,6 @@
-
 import imaplib, email, re, pyotp, asyncio, os
 from bs4 import BeautifulSoup
-from telegram import Update, ReplyKeyboardMarkup, InputFile
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 )
@@ -104,11 +103,25 @@ def fetch_otp_from_email(email_address, password):
         alias_email = email_address
         mail = imaplib.IMAP4_SSL(imap_server)
         mail.login(base_email, password)
-        folders = ["INBOX", "FB-Security", "Spam", "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"]
+
+        # List ALL folders (to avoid hardcode Spam/INBOX if Zoho changes name)
+        status, folders = mail.list()
+        # Try to find Spam/INBOX (English or Khmer or special label)
+        search_folders = []
+        for f in folders:
+            folder_name = f.decode().split(' "/" ')[-1].replace('"', "")
+            if any(x in folder_name.lower() for x in ["inbox", "spam", "junk"]):
+                search_folders.append(folder_name)
+        # Always include the common folders if not found
+        default_folders = ["INBOX", "Spam", "Junk", "Bulk", "FB-Security", "Social networks", "Promotions"]
+        for f in default_folders:
+            if f not in search_folders:
+                search_folders.append(f)
+
         seen_otps = set()
-        for folder in folders:
+        for folder in search_folders:
             try:
-                select_status, _ = mail.select(folder)
+                select_status, _ = mail.select(f'"{folder}"', readonly=True)
                 if select_status != "OK":
                     continue
                 result, data = mail.search(None, "ALL")
@@ -133,17 +146,18 @@ def fetch_otp_from_email(email_address, password):
                         otp = find_otp(subject, from_email=from_email, subject=subject)
                     if otp and otp not in seen_otps:
                         seen_otps.add(otp)
+                        # No Markdown to avoid parse error!
                         return (
                             f"✅ ខាងក្រោមនេះជាកូដរបស់អ្នក\n"
-                            f"🔑 OTP: `{otp}`\n"
+                            f"🔑 OTP: {otp}\n"
                             f"📩 From: {from_email}\n"
                             f"📝 Subject: {subject}\n"
                             f"📁 Folder: {folder_name}\n"
                             f"📥 To: {to_field}"
                         )
-            except Exception:
+            except Exception as e:
                 continue
-        return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
+        return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias/folder នេះទេ។"
     except Exception as e:
         return f"❌ បញ្ហា: {e}"
 
@@ -152,7 +166,7 @@ def generate_otp_from_secret(secret):
         otp = pyotp.TOTP(secret).now()
         return (
             "🔐 ខាងក្រោមនេះគឺជាកូដ 2FA ពី Secret Key:\n"
-            f"✅ 2FA OTP: `{otp}`"
+            f"✅ 2FA OTP: {otp}"
         )
     except Exception as e:
         return f"❌ Secret Key មិនត្រឹមត្រូវទេ: {e}"
@@ -195,12 +209,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             await update.message.reply_text("⏳ កំពុងស្វែងរក OTP សូមរងចាំ...")
             result = await asyncio.to_thread(fetch_otp_from_email, email_input, password_input)
-            await update.message.reply_text(result, parse_mode="Markdown")
+            await update.message.reply_text(result)
         except Exception as e:
             await update.message.reply_text(f"❌ បញ្ហា: {e}")
     elif len(text.replace(" ", "").strip()) >= 16 and text.replace(" ", "").strip().isalnum():
         result = generate_otp_from_secret(text.replace(" ", "").strip())
-        await update.message.reply_text(result, parse_mode="Markdown")
+        await update.message.reply_text(result)
     else:
         await update.message.reply_text("⚠️ សូមបញ្ចូល `email|password` ឬ Secret Key ត្រឹមត្រូវ")
 
@@ -220,7 +234,7 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if match:
                         secret = match.group(1)
                 if secret:
-                    await update.message.reply_text(f"✅ Secret Key: `{secret}`", parse_mode="Markdown")
+                    await update.message.reply_text(f"✅ Secret Key: {secret}")
                 else:
                     await update.message.reply_text("❌ មិនរកឃើញ Secret Key នៅក្នុង QR នេះទេ។")
             else:
