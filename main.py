@@ -93,7 +93,6 @@ def find_otp(text, from_email=None, subject=None):
         if code.upper() not in blacklist:
             return code
     return None
-
 def fetch_otp_from_email(email_address, password):
     try:
         domain = email_address.split("@")[1]
@@ -104,14 +103,11 @@ def fetch_otp_from_email(email_address, password):
         alias_email = email_address
         mail = imaplib.IMAP4_SSL(imap_server)
         mail.login(base_email, password)
-        folders = [
-            "INBOX", "FB-Security", "Spam", "Junk",
-            "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"
-        ]
+        # 👉 សូមបញ្ជាក់បន្ថែម 'Spam'
+        folders = ["INBOX", "Spam", "FB-Security", "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"]
         seen_otps = set()
         for folder in folders:
             try:
-                print(f"Checking folder: {folder}")  # Optional debug
                 select_status, _ = mail.select(folder)
                 if select_status != "OK":
                     continue
@@ -128,6 +124,7 @@ def fetch_otp_from_email(email_address, password):
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
+                    # Alias check for Yandex only
                     if domain.endswith("yandex.com"):
                         if not alias_in_any_header(msg, alias_email):
                             continue
@@ -145,7 +142,8 @@ def fetch_otp_from_email(email_address, password):
                             f"📁 Folder: {folder_name}\n"
                             f"📥 To: {to_field}"
                         )
-            except Exception:
+            except Exception as ex:
+                # ប្រសិនបើ Spam មិនអាចចូលបាន (IMAP NO) -> Continue
                 continue
         return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
     except Exception as e:
