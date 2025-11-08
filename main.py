@@ -1,12 +1,17 @@
+import os
+import imaplib, email, re, pyotp, asyncio
+from io import BytesIO
 
-import imaplib, email, re, pyotp, asyncio, os
 from bs4 import BeautifulSoup
-from telegram import Update, ReplyKeyboardMarkup, InputFile
+from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    ContextTypes, filters
 )
+
 from PIL import Image
 from pyzbar.pyzbar import decode
+import pytesseract   # <-- OCR
 
 BOT_TOKEN = "8286165511:AAFEN68nARNQh3bMeNW49jaxj_K0WtpPvBg"
 
@@ -16,8 +21,10 @@ IMAP_SERVERS = {
     "zohomail.com": "imap.zoho.com"
 }
 
+
 def is_valid_email(email_str):
     return re.match(r"[^@]+@[^@]+\.[^@]+", email_str)
+
 
 def alias_in_any_header(msg, alias_email):
     alias_lower = alias_email.lower()
@@ -27,80 +34,123 @@ def alias_in_any_header(msg, alias_email):
             return True
     return False
 
+
+# ---------- extract body + OCR on images ----------
 def extract_body(msg):
     body = ""
     html_content = ""
+    image_texts = []
+
     if msg.is_multipart():
         for part in msg.walk():
             content_type = part.get_content_type()
             payload = part.get_payload(decode=True)
-            if payload:
-                text = payload.decode(errors="ignore")
-                if content_type == "text/plain":
-                    body += text + "\n"
-                elif content_type == "text/html":
-                    html_content += text + "\n"
+            if not payload:
+                continue
+
+            if content_type == "text/plain":
+                body += payload.decode(errors="ignore") + "\n"
+
+            elif content_type == "text/html":
+                html_content += payload.decode(errors="ignore") + "\n"
+
+            elif content_type.startswith("image/"):
+                # TikTok OTP is here
+                try:
+                    img = Image.open(BytesIO(payload))
+                    ocr_text = pytesseract.image_to_string(img)
+                    if ocr_text.strip():
+                        image_texts.append(ocr_text.strip())
+                except Exception:
+                    pass
     else:
         payload = msg.get_payload(decode=True)
         if payload:
-            body = payload.decode(errors="ignore")
+            if msg.get_content_type().startswith("image/"):
+                try:
+                    img = Image.open(BytesIO(payload))
+                    ocr_text = pytesseract.image_to_string(img)
+                    if ocr_text.strip():
+                        image_texts.append(ocr_text.strip())
+                except Exception:
+                    pass
+            else:
+                body = payload.decode(errors="ignore")
+
+    # convert HTML → text
     if html_content:
         soup = BeautifulSoup(html_content, "html.parser")
         html_text = soup.get_text(separator="\n")
         body += "\n" + html_text
+
+    # append OCR texts to body so find_otp() can see it
+    if image_texts:
+        body += "\n" + "\n".join(image_texts)
+
     return body
 
+
+# ---------- find otp ----------
 def find_otp(text, from_email=None, subject=None):
     if not text:
         return None
 
-    # add some extra bad words that appear in TikTok emails
     blacklist = {
         "DOCTYPE", "OFFICE", "DEVICE", "VERIFY", "TOKEN", "ACCESS",
         "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE",
-        "SIZING", "IMAGE", "BUTTON"
+        "SIZING", "IMAGE", "BUTTON", "BORDER", "CENTER", "WIDTH", "HEIGHT",
+        "STYLE", "TABLE"
     }
 
-    # 1) pattern like 123-456
+    # ex: 123-456 → 123456
     match = re.search(r"\b(\d{3})-(\d{3})\b", text)
     if match:
         return match.group(1) + match.group(2)
 
-    # ----- SPECIAL CASE: TikTok -----
+    # ----- TikTok special -----
     if from_email and "tiktok.com" in from_email.lower():
-        # try to capture exactly after the sentence in the email you showed
+        # 1) the exact sentence in screenshot
         m = re.search(
             r"code in TikTok Marketing API:\s*([A-Za-z0-9]{4,8})",
             text,
             re.IGNORECASE
         )
-        if not m:
-            # fallback: more generic “enter this code: ...”
-            m = re.search(
-                r"enter this code[: ]+\s*([A-Za-z0-9]{4,8})",
-                text,
-                re.IGNORECASE
-            )
         if m:
-            code = m.group(1)
+            code = m.group(1).strip()
             if code.upper() not in blacklist:
                 return code
 
-        # old fallback logic, but with stronger blacklist
-        lines = text.splitlines()
-        for line in lines:
-            code_candidate = line.strip()
-            if re.fullmatch(r"[A-Za-z0-9]{6}", code_candidate):
-                if code_candidate.upper() not in blacklist:
-                    return code_candidate
+        # 2) generic "enter this code:"
+        m = re.search(
+            r"enter this code[: ]+\s*([A-Za-z0-9]{4,8})",
+            text,
+            re.IGNORECASE
+        )
+        if m:
+            code = m.group(1).strip()
+            if code.upper() not in blacklist:
+                return code
 
-        matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
+        # 3) lines from OCR/HTML – ignore css lines
+        lines = [ln.strip() for ln in text.splitlines()]
+        for ln in lines:
+            if ":" in ln or ";" in ln:  # CSS
+                continue
+            if len(ln) < 4 or len(ln) > 10:
+                continue
+            if re.fullmatch(r"[A-Za-z0-9]{4,8}", ln):
+                if ln.upper() not in blacklist:
+                    return ln
+
+        # 4) fallback all tokens
+        matches = re.findall(r"\b([A-Za-z0-9]{4,8})\b", text, re.IGNORECASE)
         for code in matches:
             if code.upper() not in blacklist:
                 return code
+
         return None
 
-    # ----- NORMAL EMAILS (your old logic) -----
+    # ----- normal emails like FB, Telegram -----
     match = re.search(r"\b\d{6}\b", text)
     if match:
         return match.group(0)
@@ -120,58 +170,59 @@ def find_otp(text, from_email=None, subject=None):
 
     return None
 
-    match = re.search(r"\b\d{6}\b", text)
-    if match:
-        return match.group(0)
-    match = re.search(r"\b\d{4,8}\b", text)
-    if match:
-        return match.group(0)
-    match = re.search(r"(\d\s){3,7}\d", text)
-    if match:
-        return match.group(0).replace(" ", "")
-    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
-    for code in matches:
-        if code.upper() not in blacklist:
-            return code
-    return None
 
 def fetch_otp_from_email(email_address, password):
     try:
         domain = email_address.split("@")[1]
         if domain not in IMAP_SERVERS:
             return "❌ Bot គាំទ្រតែ Yandex និង Zoho ប៉ុណ្ណោះ។"
+
         imap_server = IMAP_SERVERS[domain]
         base_email = email_address.split("+")[0] + "@" + domain
         alias_email = email_address
+
         mail = imaplib.IMAP4_SSL(imap_server)
         mail.login(base_email, password)
-        folders = ["INBOX", "FB-Security", "Spam", "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"]
+
+        folders = [
+            "INBOX", "FB-Security", "Spam", "Social networks",
+            "Bulk", "Promotions", "[Gmail]/All Mail"
+        ]
+
         seen_otps = set()
+
         for folder in folders:
             try:
                 select_status, _ = mail.select(folder)
                 if select_status != "OK":
                     continue
+
                 result, data = mail.search(None, "ALL")
                 if result != "OK":
                     continue
-                email_ids = data[0].split()[-20:]
+
+                email_ids = data[0].split()[-20:]  # last 20
                 for eid in reversed(email_ids):
                     result, data = mail.fetch(eid, "(RFC822)")
                     if result != "OK":
                         continue
+
                     msg = email.message_from_bytes(data[0][1])
                     subject = msg.get("Subject", "")
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
+
+                    # yandex alias check
                     if domain.endswith("yandex.com"):
                         if not alias_in_any_header(msg, alias_email):
                             continue
+
                     body = extract_body(msg)
                     otp = find_otp(body, from_email=from_email, subject=subject)
                     if not otp:
                         otp = find_otp(subject, from_email=from_email, subject=subject)
+
                     if otp and otp not in seen_otps:
                         seen_otps.add(otp)
                         return (
@@ -184,9 +235,12 @@ def fetch_otp_from_email(email_address, password):
                         )
             except Exception:
                 continue
+
         return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
+
     except Exception as e:
         return f"❌ បញ្ហា: {e}"
+
 
 def generate_otp_from_secret(secret):
     try:
@@ -198,6 +252,8 @@ def generate_otp_from_secret(secret):
     except Exception as e:
         return f"❌ Secret Key មិនត្រឹមត្រូវទេ: {e}"
 
+
+# ---------- telegram handlers ----------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [["📷 QR GET KEY", "🔐 2FA OTP", "📩 Mail OTP"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -206,6 +262,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👋 សួស្ដីបង {full_name}!\n📥 សូមចុចប៊ូតុងខាងក្រោមដើម្បីដំណើរការ",
         reply_markup=reply_markup
     )
+
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
@@ -245,6 +302,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ សូមបញ្ចូល `email|password` ឬ Secret Key ត្រឹមត្រូវ")
 
+
 async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('qr_wait'):
         photo_file = await update.message.photo[-1].get_file()
@@ -272,9 +330,12 @@ async def photo_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ សូមចុច '📷 QR GET KEY' ជាមុនសិន។")
 
+
+# ---------- run bot ----------
 app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
+
 print("✅ Bot is running...")
 app.run_polling()
