@@ -54,30 +54,71 @@ def find_otp(text, from_email=None, subject=None):
     if not text:
         return None
 
+    # add some extra bad words that appear in TikTok emails
     blacklist = {
         "DOCTYPE", "OFFICE", "DEVICE", "VERIFY", "TOKEN", "ACCESS",
-        "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE"
+        "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE",
+        "SIZING", "IMAGE", "BUTTON"
     }
 
+    # 1) pattern like 123-456
     match = re.search(r"\b(\d{3})-(\d{3})\b", text)
     if match:
         return match.group(1) + match.group(2)
 
+    # ----- SPECIAL CASE: TikTok -----
     if from_email and "tiktok.com" in from_email.lower():
-        match = re.search(r"\b\d{6}\b", text)
-        if match:
-            return match.group(0)
+        # try to capture exactly after the sentence in the email you showed
+        m = re.search(
+            r"code in TikTok Marketing API:\s*([A-Za-z0-9]{4,8})",
+            text,
+            re.IGNORECASE
+        )
+        if not m:
+            # fallback: more generic “enter this code: ...”
+            m = re.search(
+                r"enter this code[: ]+\s*([A-Za-z0-9]{4,8})",
+                text,
+                re.IGNORECASE
+            )
+        if m:
+            code = m.group(1)
+            if code.upper() not in blacklist:
+                return code
+
+        # old fallback logic, but with stronger blacklist
         lines = text.splitlines()
         for line in lines:
             code_candidate = line.strip()
             if re.fullmatch(r"[A-Za-z0-9]{6}", code_candidate):
                 if code_candidate.upper() not in blacklist:
                     return code_candidate
+
         matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
         for code in matches:
             if code.upper() not in blacklist:
                 return code
         return None
+
+    # ----- NORMAL EMAILS (your old logic) -----
+    match = re.search(r"\b\d{6}\b", text)
+    if match:
+        return match.group(0)
+
+    match = re.search(r"\b\d{4,8}\b", text)
+    if match:
+        return match.group(0)
+
+    match = re.search(r"(\d\s){3,7}\d", text)
+    if match:
+        return match.group(0).replace(" ", "")
+
+    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
+    for code in matches:
+        if code.upper() not in blacklist:
+            return code
+
+    return None
 
     match = re.search(r"\b\d{6}\b", text)
     if match:
