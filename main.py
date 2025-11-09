@@ -1,3 +1,4 @@
+
 import imaplib, email, re, pyotp, asyncio, os
 from bs4 import BeautifulSoup
 from telegram import Update, ReplyKeyboardMarkup, InputFile
@@ -26,107 +27,73 @@ def alias_in_any_header(msg, alias_email):
             return True
     return False
 
-# ---------- 1) CLEAN HTML + REMOVE "Image" LINES ----------
 def extract_body(msg):
     body = ""
     html_content = ""
-
     if msg.is_multipart():
         for part in msg.walk():
-            ctype = part.get_content_type()
+            content_type = part.get_content_type()
             payload = part.get_payload(decode=True)
-            if not payload:
-                continue
-            text = payload.decode(errors="ignore")
-            if ctype == "text/plain":
-                body += text + "\n"
-            elif ctype == "text/html":
-                soup = BeautifulSoup(text, "html.parser")
-                # Remove <img> and their alt="Image"
-                for img in soup.find_all("img"):
-                    img.decompose()
-                html_text = soup.get_text(separator="\n")
-                html_content += html_text + "\n"
+            if payload:
+                text = payload.decode(errors="ignore")
+                if content_type == "text/plain":
+                    body += text + "\n"
+                elif content_type == "text/html":
+                    html_content += text + "\n"
     else:
         payload = msg.get_payload(decode=True)
         if payload:
             body = payload.decode(errors="ignore")
-
     if html_content:
-        body += "\n" + html_content
-
-    # Remove garbage lines
-    cleaned = []
-    for line in body.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        if any(x in line.lower() for x in ["image", "meta", "border", "width", "style", "table"]):
-            continue
-        cleaned.append(line)
-    return "\n".join(cleaned)
-
+        soup = BeautifulSoup(html_content, "html.parser")
+        html_text = soup.get_text(separator="\n")
+        body += "\n" + html_text
+    return body
 
 def find_otp(text, from_email=None, subject=None):
     if not text:
         return None
 
     blacklist = {
-        "DOCTYPE","OFFICE","DEVICE","VERIFY","TOKEN","ACCESS","SUBJECT",
-        "HEADER","FOOTER","CLIENT","SERVER","ACCOUNT","CODE","SIZING",
-        "IMAGE","BUTTON","BORDER","CENTER","WIDTH","HEIGHT","STYLE",
-        "TABLE","META"
+        "DOCTYPE", "OFFICE", "DEVICE", "VERIFY", "TOKEN", "ACCESS",
+        "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE"
     }
 
-    # Combine lines for easier regex matching
-    flat_text = " ".join(text.split())
+    match = re.search(r"\b(\d{3})-(\d{3})\b", text)
+    if match:
+        return match.group(1) + match.group(2)
 
-    # 🔹 1. TikTok specific pattern
     if from_email and "tiktok.com" in from_email.lower():
-        m = re.search(
-            r"enter this code in TikTok Marketing API:\s*([A-Za-z0-9]{4,8})",
-            flat_text,
-            re.IGNORECASE
-        )
-        if not m:
-            m = re.search(
-                r"Marketing API[:\s]+([A-Za-z0-9]{4,8})\b",
-                flat_text,
-                re.IGNORECASE
-            )
-        if not m:
-            # look before 'This code will expire'
-            m = re.search(
-                r"\b([A-Za-z0-9]{4,8})\b(?=\s+This code will expire)",
-                flat_text,
-                re.IGNORECASE
-            )
-        if m:
-            code = m.group(1).strip()
+        match = re.search(r"\b\d{6}\b", text)
+        if match:
+            return match.group(0)
+        lines = text.splitlines()
+        for line in lines:
+            code_candidate = line.strip()
+            if re.fullmatch(r"[A-Za-z0-9]{6}", code_candidate):
+                if code_candidate.upper() not in blacklist:
+                    return code_candidate
+        matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
+        for code in matches:
             if code.upper() not in blacklist:
                 return code
+        return None
 
-        # fallback scan each line
-        for ln in text.splitlines():
-            ln = ln.strip()
-            if len(ln) in range(4, 9) and re.fullmatch(r"[A-Za-z0-9]+", ln):
-                if ln.upper() not in blacklist:
-                    return ln
-
-    # 🔹 2. General numeric codes
-    m = re.search(r"\b\d{6}\b", text)
-    if m: return m.group(0)
-    m = re.search(r"\b\d{4,8}\b", text)
-    if m: return m.group(0)
-    m = re.search(r"(\d\s){3,7}\d", text)
-    if m: return m.group(0).replace(" ", "")
-
-    # 🔹 3. Fallback alphanumeric (4–8 chars)
-    for code in re.findall(r"\b([A-Za-z0-9]{4,8})\b", text):
+    match = re.search(r"\b\d{6}\b", text)
+    if match:
+        return match.group(0)
+    match = re.search(r"\b\d{4,8}\b", text)
+    if match:
+        return match.group(0)
+    match = re.search(r"(\d\s){3,7}\d", text)
+    if match:
+        return match.group(0).replace(" ", "")
+    matches = re.findall(r"\b([A-Z0-9]{6})\b", text, re.IGNORECASE)
+    for code in matches:
         if code.upper() not in blacklist:
             return code
-
     return None
+
 def fetch_otp_from_email(email_address, password):
     try:
         domain = email_address.split("@")[1]
@@ -268,6 +235,5 @@ app = ApplicationBuilder().token(BOT_TOKEN).build()
 app.add_handler(CommandHandler("start", start))
 app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle))
 app.add_handler(MessageHandler(filters.PHOTO, photo_handler))
-
 print("✅ Bot is running...")
 app.run_polling()
