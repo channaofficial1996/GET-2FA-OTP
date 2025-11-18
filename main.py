@@ -1,4 +1,3 @@
-
 import imaplib, email, re, pyotp, asyncio, os
 from bs4 import BeautifulSoup
 from telegram import Update, ReplyKeyboardMarkup, InputFile
@@ -59,10 +58,12 @@ def find_otp(text, from_email=None, subject=None):
         "SUBJECT", "HEADER", "FOOTER", "CLIENT", "SERVER", "ACCOUNT", "CODE"
     }
 
+    # 123-456 style
     match = re.search(r"\b(\d{3})-(\d{3})\b", text)
     if match:
         return match.group(1) + match.group(2)
 
+    # Special handling for TikTok
     if from_email and "tiktok.com" in from_email.lower():
         match = re.search(r"\b\d{6}\b", text)
         if match:
@@ -79,6 +80,7 @@ def find_otp(text, from_email=None, subject=None):
                 return code
         return None
 
+    # Generic numeric codes (Instagram etc.)
     match = re.search(r"\b\d{6}\b", text)
     if match:
         return match.group(0)
@@ -99,43 +101,56 @@ def fetch_otp_from_email(email_address, password):
         domain = email_address.split("@")[1]
         if domain not in IMAP_SERVERS:
             return "❌ Bot គាំទ្រតែ Yandex និង Zoho ប៉ុណ្ណោះ។"
+
         imap_server = IMAP_SERVERS[domain]
         base_email = email_address.split("+")[0] + "@" + domain
         alias_email = email_address
+
         mail = imaplib.IMAP4_SSL(imap_server)
         mail.login(base_email, password)
-        folders = ["INBOX", "FB-Security", "Spam", "Social networks", "Bulk", "Promotions", "[Gmail]/All Mail"]
+
+        folders = ["INBOX", "FB-Security", "Spam", "Social networks",
+                   "Bulk", "Promotions", "[Gmail]/All Mail"]
         seen_otps = set()
+
         for folder in folders:
             try:
                 select_status, _ = mail.select(folder)
                 if select_status != "OK":
                     continue
+
                 result, data = mail.search(None, "ALL")
                 if result != "OK":
                     continue
+
                 email_ids = data[0].split()[-20:]
                 for eid in reversed(email_ids):
                     result, data = mail.fetch(eid, "(RFC822)")
                     if result != "OK":
                         continue
+
                     msg = email.message_from_bytes(data[0][1])
                     subject = msg.get("Subject", "")
                     from_email = msg.get("From", "")
                     folder_name = folder
                     to_field = msg.get("To", "")
+
                     if domain.endswith("yandex.com"):
                         if not alias_in_any_header(msg, alias_email):
                             continue
+
                     body = extract_body(msg)
                     otp = find_otp(body, from_email=from_email, subject=subject)
                     if not otp:
                         otp = find_otp(subject, from_email=from_email, subject=subject)
+
                     if otp and otp not in seen_otps:
                         seen_otps.add(otp)
+
+                        # ✅ PLAIN TEXT (no Markdown characters) – CHANGED
                         return (
-                            f"✅ ខាងក្រោមនេះជាកូដរបស់អ្នក\n"
-                            f"🔑 OTP: `{otp}`\n"
+                            "✅ ខាងក្រោមនេះជាកូដរបស់អ្នក\n"
+                            f"🔑 OTP: {otp}\n"
                             f"📩 From: {from_email}\n"
                             f"📝 Subject: {subject}\n"
                             f"📁 Folder: {folder_name}\n"
@@ -143,6 +158,7 @@ def fetch_otp_from_email(email_address, password):
                         )
             except Exception:
                 continue
+
         return "❌ OTP មិនមានក្នុងអ៊ីមែល 20 ចុងក្រោយសម្រាប់ alias នេះទេ។"
     except Exception as e:
         return f"❌ បញ្ហា: {e}"
@@ -193,13 +209,18 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not is_valid_email(email_input):
                 await update.message.reply_text("❌ Email មិនត្រឹមត្រូវទេ។")
                 return
+
             await update.message.reply_text("⏳ កំពុងស្វែងរក OTP សូមរងចាំ...")
             result = await asyncio.to_thread(fetch_otp_from_email, email_input, password_input)
-            await update.message.reply_text(result, parse_mode="Markdown")
+
+            # ❗ NO PARSE MODE HERE – CHANGED
+            await update.message.reply_text(result)
+
         except Exception as e:
             await update.message.reply_text(f"❌ បញ្ហា: {e}")
     elif len(text.replace(" ", "").strip()) >= 16 and text.replace(" ", "").strip().isalnum():
         result = generate_otp_from_secret(text.replace(" ", "").strip())
+        # still Markdown here – safe because secret has only A-Z2-7 digits
         await update.message.reply_text(result, parse_mode="Markdown")
     else:
         await update.message.reply_text("⚠️ សូមបញ្ចូល `email|password` ឬ Secret Key ត្រឹមត្រូវ")
